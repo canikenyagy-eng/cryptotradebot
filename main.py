@@ -82,6 +82,7 @@ def _ccxt_config_from_settings(settings: Settings) -> dict[str, object]:
         "timeout_ms": settings.ccxt_timeout_ms,
         "enable_rate_limit": settings.ccxt_enable_rate_limit,
         "ohlcv_limit": settings.ccxt_ohlcv_limit,
+        "ohlcv_request_limit": settings.ccxt_ohlcv_request_limit,
         "health_check_symbol": settings.ccxt_health_check_symbol,
         "timeframe_map": settings.ccxt_timeframe_map,
         "ohlcv_params": settings.ccxt_ohlcv_params,

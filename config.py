@@ -196,6 +196,7 @@ class Settings:
     ccxt_timeout_ms: int
     ccxt_enable_rate_limit: bool
     ccxt_ohlcv_limit: int | None
+    ccxt_ohlcv_request_limit: int
     ccxt_health_check_symbol: str
     ccxt_timeframe_map: dict[str, object]
     ccxt_ohlcv_params: dict[str, object]
@@ -560,6 +561,7 @@ class Settings:
             ccxt_timeout_ms=max(1000, int(os.getenv("CCXT_TIMEOUT_MS", "10000"))),
             ccxt_enable_rate_limit=_parse_bool(os.getenv("CCXT_ENABLE_RATE_LIMIT", "1"), default=True),
             ccxt_ohlcv_limit=_parse_optional_int(os.getenv("CCXT_OHLCV_LIMIT")),
+            ccxt_ohlcv_request_limit=max(1, int(os.getenv("CCXT_OHLCV_REQUEST_LIMIT", "1000"))),
             ccxt_health_check_symbol=_parse_pairs(os.getenv("CCXT_HEALTH_CHECK_SYMBOL", "BTCUSDT"))[0],
             ccxt_timeframe_map=_parse_json_dict(os.getenv("CCXT_TIMEFRAME_MAP_JSON")),
             ccxt_ohlcv_params=_parse_json_dict(os.getenv("CCXT_OHLCV_PARAMS_JSON")),

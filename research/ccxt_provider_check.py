@@ -90,6 +90,7 @@ def main() -> None:
         "timeout_ms": int(os.getenv("CCXT_TIMEOUT_MS", "10000")),
         "enable_rate_limit": parse_bool(os.getenv("CCXT_ENABLE_RATE_LIMIT"), default=True),
         "ohlcv_limit": parse_optional_int(os.getenv("CCXT_OHLCV_LIMIT")),
+        "ohlcv_request_limit": int(os.getenv("CCXT_OHLCV_REQUEST_LIMIT", "1000")),
         "health_check_symbol": os.getenv("CCXT_HEALTH_CHECK_SYMBOL", "BTCUSDT"),
         "timeframe_map": parse_json_dict(os.getenv("CCXT_TIMEFRAME_MAP_JSON")),
         "ohlcv_params": parse_json_dict(os.getenv("CCXT_OHLCV_PARAMS_JSON")),

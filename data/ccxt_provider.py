@@ -25,6 +25,7 @@ class CcxtConfig:
     timeout_ms: int = 10000
     enable_rate_limit: bool = True
     ohlcv_limit: int | None = None
+    ohlcv_request_limit: int = 1000
     health_check_symbol: str = "BTCUSDT"
     timeframe_map: dict[str, str] | None = None
     ohlcv_params: dict[str, object] | None = None
@@ -42,6 +43,7 @@ class CcxtConfig:
                 "timeout_ms": os.getenv("CCXT_TIMEOUT_MS", "10000"),
                 "enable_rate_limit": os.getenv("CCXT_ENABLE_RATE_LIMIT", "1"),
                 "ohlcv_limit": os.getenv("CCXT_OHLCV_LIMIT", ""),
+                "ohlcv_request_limit": os.getenv("CCXT_OHLCV_REQUEST_LIMIT", "1000"),
                 "health_check_symbol": os.getenv("CCXT_HEALTH_CHECK_SYMBOL", "BTCUSDT"),
                 "timeframe_map": _parse_json_object(os.getenv("CCXT_TIMEFRAME_MAP_JSON", "")),
                 "ohlcv_params": _parse_json_object(os.getenv("CCXT_OHLCV_PARAMS_JSON", "")),
@@ -62,6 +64,7 @@ class CcxtConfig:
             "timeout_ms": os.getenv("CCXT_TIMEOUT_MS", "10000"),
             "enable_rate_limit": os.getenv("CCXT_ENABLE_RATE_LIMIT", "1"),
             "ohlcv_limit": os.getenv("CCXT_OHLCV_LIMIT", ""),
+            "ohlcv_request_limit": os.getenv("CCXT_OHLCV_REQUEST_LIMIT", "1000"),
             "health_check_symbol": os.getenv("CCXT_HEALTH_CHECK_SYMBOL", "BTCUSDT"),
             "timeframe_map": _parse_json_object(os.getenv("CCXT_TIMEFRAME_MAP_JSON", "")),
             "ohlcv_params": _parse_json_object(os.getenv("CCXT_OHLCV_PARAMS_JSON", "")),
@@ -82,6 +85,7 @@ class CcxtConfig:
             timeout_ms=max(1000, int(merged.get("timeout_ms") or 10000)),
             enable_rate_limit=_parse_bool(merged.get("enable_rate_limit"), default=True),
             ohlcv_limit=_optional_int(merged.get("ohlcv_limit")),
+            ohlcv_request_limit=max(1, int(merged.get("ohlcv_request_limit") or 1000)),
             health_check_symbol=normalize_symbol(merged.get("health_check_symbol") or "BTCUSDT"),
             timeframe_map=_string_map(merged.get("timeframe_map")),
             ohlcv_params=dict(merged.get("ohlcv_params") or {}) if isinstance(merged.get("ohlcv_params"), Mapping) else {},
@@ -205,6 +209,64 @@ class CcxtMarketDataProvider(MarketDataProvider):
         mapping = self.config.timeframe_map or default_map
         return str(mapping.get(key, default_map[key]))
 
+    def _timeframe_milliseconds(self, timeframe: str) -> int:
+        normalized = timeframe.strip().lower()
+        mapping = {
+            "M1": 60_000,
+            "1m": 60_000,
+            "M5": 300_000,
+            "5m": 300_000,
+            "M15": 900_000,
+            "15m": 900_000,
+            "M30": 1_800_000,
+            "30m": 1_800_000,
+            "H1": 3_600_000,
+            "1h": 3_600_000,
+            "H4": 14_400_000,
+            "4h": 14_400_000,
+            "D1": 86_400_000,
+            "1d": 86_400_000,
+        }
+        return mapping.get(timeframe.upper(), mapping.get(normalized, 300_000))
+
+    def _fetch_ohlcv_rows(self, exchange: Any, symbol: str, timeframe: str, max_rows: int) -> list[list[object]]:
+        request_limit = min(max_rows, self.config.ohlcv_request_limit)
+        params = dict(self.config.ohlcv_params or {})
+        if max_rows <= request_limit:
+            return exchange.fetch_ohlcv(
+                symbol,
+                timeframe=timeframe,
+                since=None,
+                limit=max_rows,
+                params=params,
+            )
+
+        tf_ms = self._timeframe_milliseconds(timeframe)
+        exchange_now = getattr(exchange, "milliseconds", None)
+        now_ms = int(exchange_now()) if callable(exchange_now) else int(pd.Timestamp.now(tz="UTC").timestamp() * 1000)
+        since = now_ms - ((max_rows + 2) * tf_ms)
+        rows_by_time: dict[int, list[object]] = {}
+        stale_pages = 0
+        while len(rows_by_time) < max_rows and stale_pages < 3:
+            page = exchange.fetch_ohlcv(
+                symbol,
+                timeframe=timeframe,
+                since=since,
+                limit=min(request_limit, max_rows - len(rows_by_time)),
+                params=params,
+            )
+            if not page:
+                break
+            before = len(rows_by_time)
+            for row in page:
+                if len(row) >= 6:
+                    rows_by_time[int(row[0])] = list(row[:6])
+            latest = max(int(row[0]) for row in page if len(row) >= 1)
+            since = latest + tf_ms
+            stale_pages = stale_pages + 1 if len(rows_by_time) == before else 0
+
+        return [rows_by_time[key] for key in sorted(rows_by_time)][-max_rows:]
+
     def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int | None = None) -> pd.DataFrame:
         exchange = self._connect()
         if not bool(getattr(exchange, "has", {}).get("fetchOHLCV", True)):
@@ -214,13 +276,7 @@ class CcxtMarketDataProvider(MarketDataProvider):
         max_rows = max(1, int(limit or self.config.ohlcv_limit or self.history_limit))
         exchange_symbol = self._format_symbol(symbol)
         exchange_timeframe = self._format_timeframe(timeframe)
-        rows = exchange.fetch_ohlcv(
-            exchange_symbol,
-            timeframe=exchange_timeframe,
-            since=None,
-            limit=max_rows,
-            params=dict(self.config.ohlcv_params or {}),
-        )
+        rows = self._fetch_ohlcv_rows(exchange, exchange_symbol, exchange_timeframe, max_rows)
         if not rows:
             raise ValueError(f"No CCXT OHLCV rows for {symbol} {timeframe} on {self.config.exchange_id}")
 
