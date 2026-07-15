@@ -2,7 +2,7 @@
 
 Crypto-first SMC signal bot, forked from the forex `smctradebot` codebase.
 
-Current status: Phase 5 forward outcome validation. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, a safe Phase 4 forward-validation runner, and Phase 5 outcome/reporting dashboards.
+Current status: Phase 6 paper-trading replay. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, a safe Phase 4 forward-validation runner, Phase 5 outcome/reporting dashboards, and Phase 6 virtual account reporting.
 
 ## What Works Now
 
@@ -16,6 +16,7 @@ Current status: Phase 5 forward outcome validation. The repo has the existing SM
 - Phase 3 BTC/ETH backtest calibration docs and signal-only profile
 - Phase 4 CCXT forward-validation runner with Telegram alerts, forward journal, telemetry, heartbeat, and diagnostics
 - Phase 5 forward outcome tracking, performance aggregation, feed-health decisioning, and local dashboard output
+- Phase 6 paper-trading replay from forward signals and outcomes with ledger, equity metrics, and local dashboard output
 
 ## Not Ready Yet
 
@@ -63,4 +64,10 @@ Build the Phase 5 validation report and dashboard:
 
 ```bash
 python -m research.crypto_forward_validation_report
+```
+
+Replay Phase 5 outcomes into a Phase 6 paper-trading account:
+
+```bash
+python -m research.crypto_paper_trading_report --sent-only
 ```
