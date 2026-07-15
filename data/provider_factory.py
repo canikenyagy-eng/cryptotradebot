@@ -19,6 +19,7 @@ from data.market_data_base import (
 )
 
 # Import providers to register them
+from data.ccxt_provider import CcxtConfig, CcxtMarketDataProvider
 from data.itick_provider import ItickConfig, ItickMarketDataProvider
 from data.live_bar_provider import LiveBarMarketDataProvider, LiveBarProviderConfig
 from data.mt5_provider import MT5MarketDataProvider
@@ -95,6 +96,11 @@ class MarketDataManager:
         if self.provider_name == "itick":
             return provider_class(
                 config=ItickConfig.from_dict(self.provider_config),
+                history_limit=self.history_limit,
+            )
+        if self.provider_name == "ccxt":
+            return provider_class(
+                config=CcxtConfig.from_dict(self.provider_config),
                 history_limit=self.history_limit,
             )
         if self.provider_name == "live_bars":
@@ -216,6 +222,7 @@ def get_default_manager(
     data_source: str = "yahoo",
     mt5_config: Optional[dict] = None,
     itick_config: Optional[dict] = None,
+    ccxt_config: Optional[dict] = None,
     live_bar_config: Optional[dict] = None,
     redundant_config: Optional[dict] = None,
     history_limit: int = 500,
@@ -233,6 +240,8 @@ def get_default_manager(
     """
     if data_source == "mt5":
         provider_config = mt5_config
+    elif data_source == "ccxt":
+        provider_config = ccxt_config
     elif data_source == "live_bars":
         provider_config = live_bar_config
     elif data_source == "redundant":

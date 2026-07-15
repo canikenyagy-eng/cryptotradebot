@@ -13,6 +13,7 @@ from typing import Any
 import pandas as pd
 
 from core.symbols import normalize_symbol
+from data.ccxt_provider import CcxtConfig, CcxtMarketDataProvider
 from data.itick_provider import ItickConfig, ItickMarketDataProvider
 from data.live_bar_provider import LiveBarMarketDataProvider, LiveBarProviderConfig
 from data.market_data_base import MarketDataProvider, TIMEFRAME_MAP, register_provider
@@ -30,6 +31,7 @@ class RedundantProviderConfig:
     max_candle_age_seconds: float = 1800.0
     fail_closed: bool = True
     log_path: Path | str = Path("logs/market_data_redundancy.jsonl")
+    ccxt_config: CcxtConfig | None = None
     itick_config: ItickConfig | None = None
     live_bar_config: LiveBarProviderConfig | None = None
     mt5_config: dict[str, Any] | None = None
@@ -44,6 +46,7 @@ class RedundantProviderConfig:
             max_candle_age_seconds=max(60.0, float(data.get("max_candle_age_seconds", 1800))),
             fail_closed=_parse_bool(data.get("fail_closed"), default=True),
             log_path=Path(str(data.get("log_path", "logs/market_data_redundancy.jsonl")).strip()),
+            ccxt_config=CcxtConfig.from_dict(data.get("ccxt_config") if isinstance(data.get("ccxt_config"), dict) else None),
             itick_config=ItickConfig.from_dict(data.get("itick_config") if isinstance(data.get("itick_config"), dict) else None),
             live_bar_config=LiveBarProviderConfig.from_dict(
                 data.get("live_bar_config") if isinstance(data.get("live_bar_config"), dict) else None
@@ -120,6 +123,8 @@ class RedundantMarketDataProvider(MarketDataProvider):
 
         if source == "live_bars":
             provider = LiveBarMarketDataProvider(config=self.config.live_bar_config, history_limit=self.history_limit)
+        elif source == "ccxt":
+            provider = CcxtMarketDataProvider(config=self.config.ccxt_config, history_limit=self.history_limit)
         elif source == "itick":
             provider = ItickMarketDataProvider(config=self.config.itick_config, history_limit=self.history_limit)
         elif source == "yahoo":

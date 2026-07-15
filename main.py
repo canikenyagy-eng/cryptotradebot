@@ -73,6 +73,23 @@ def _itick_config_from_settings(settings: Settings) -> dict[str, object]:
     }
 
 
+def _ccxt_config_from_settings(settings: Settings) -> dict[str, object]:
+    return {
+        "exchange_id": settings.ccxt_exchange_id,
+        "market_type": settings.market_type,
+        "default_type": settings.ccxt_default_type,
+        "sandbox": settings.ccxt_sandbox,
+        "timeout_ms": settings.ccxt_timeout_ms,
+        "enable_rate_limit": settings.ccxt_enable_rate_limit,
+        "ohlcv_limit": settings.ccxt_ohlcv_limit,
+        "health_check_symbol": settings.ccxt_health_check_symbol,
+        "timeframe_map": settings.ccxt_timeframe_map,
+        "ohlcv_params": settings.ccxt_ohlcv_params,
+        "exchange_options": settings.ccxt_exchange_options,
+        "symbol_specs": settings.symbol_specs,
+    }
+
+
 def _live_bar_config_from_settings(settings: Settings) -> dict[str, object]:
     return {
         "bars_dir": settings.live_bar_provider_dir,
@@ -92,6 +109,7 @@ def _redundant_config_from_settings(settings: Settings) -> dict[str, object]:
         "max_candle_age_seconds": settings.market_data_redundancy_max_candle_age_seconds,
         "fail_closed": settings.market_data_redundancy_fail_closed,
         "log_path": settings.market_data_redundancy_log_path,
+        "ccxt_config": _ccxt_config_from_settings(settings),
         "itick_config": _itick_config_from_settings(settings),
         "live_bar_config": _live_bar_config_from_settings(settings),
         "mt5_config": {
@@ -127,6 +145,7 @@ def _build_market_data(
         mt5_server=settings.mt5_server,
         mt5_path=settings.mt5_path,
         itick_config=_itick_config_from_settings(settings),
+        ccxt_config=_ccxt_config_from_settings(settings),
         live_bar_config=_live_bar_config_from_settings(settings),
         redundant_config=_redundant_config_from_settings(settings),
         cache_config=MarketDataCacheConfig(

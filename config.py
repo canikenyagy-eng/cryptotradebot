@@ -190,6 +190,16 @@ class Settings:
     market_type: str
     symbol_specs: dict[str, object]
     data_source: str
+    ccxt_exchange_id: str
+    ccxt_default_type: str
+    ccxt_sandbox: bool
+    ccxt_timeout_ms: int
+    ccxt_enable_rate_limit: bool
+    ccxt_ohlcv_limit: int | None
+    ccxt_health_check_symbol: str
+    ccxt_timeframe_map: dict[str, object]
+    ccxt_ohlcv_params: dict[str, object]
+    ccxt_exchange_options: dict[str, object]
     mt5_login: int
     mt5_password: str
     mt5_server: str
@@ -543,7 +553,17 @@ class Settings:
             ),
             market_type=os.getenv("MARKET_TYPE", "crypto_spot").strip().lower(),
             symbol_specs=_parse_json_dict(os.getenv("SYMBOL_SPECS_JSON")),
-            data_source=os.getenv("DATA_SOURCE", "yahoo").strip().lower(),
+            data_source=os.getenv("DATA_SOURCE", "ccxt").strip().lower(),
+            ccxt_exchange_id=os.getenv("CCXT_EXCHANGE_ID", "binance").strip().lower(),
+            ccxt_default_type=os.getenv("CCXT_DEFAULT_TYPE", "spot").strip().lower(),
+            ccxt_sandbox=_parse_bool(os.getenv("CCXT_SANDBOX", "0"), default=False),
+            ccxt_timeout_ms=max(1000, int(os.getenv("CCXT_TIMEOUT_MS", "10000"))),
+            ccxt_enable_rate_limit=_parse_bool(os.getenv("CCXT_ENABLE_RATE_LIMIT", "1"), default=True),
+            ccxt_ohlcv_limit=_parse_optional_int(os.getenv("CCXT_OHLCV_LIMIT")),
+            ccxt_health_check_symbol=_parse_pairs(os.getenv("CCXT_HEALTH_CHECK_SYMBOL", "BTCUSDT"))[0],
+            ccxt_timeframe_map=_parse_json_dict(os.getenv("CCXT_TIMEFRAME_MAP_JSON")),
+            ccxt_ohlcv_params=_parse_json_dict(os.getenv("CCXT_OHLCV_PARAMS_JSON")),
+            ccxt_exchange_options=_parse_json_dict(os.getenv("CCXT_EXCHANGE_OPTIONS_JSON")),
             mt5_login=_parse_optional_int(os.getenv("MT5_LOGIN")),
             mt5_password=os.getenv("MT5_PASSWORD", "").strip(),
             mt5_server=os.getenv("MT5_SERVER", "").strip(),

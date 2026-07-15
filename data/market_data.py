@@ -90,6 +90,7 @@ class MarketDataClient:
         mt5_server: str = "",
         mt5_path: str = "",
         itick_config: dict[str, object] | None = None,
+        ccxt_config: dict[str, object] | None = None,
         live_bar_config: dict[str, object] | None = None,
         redundant_config: dict[str, object] | None = None,
         cache_config: MarketDataCacheConfig | None = None,
@@ -99,6 +100,9 @@ class MarketDataClient:
         self.data_source = data_source.strip().lower()
         self.market_type = normalize_market_type(market_type)
         self.symbol_specs = build_symbol_specs((), raw_specs=symbol_specs, market_type=self.market_type)
+        ccxt_payload = dict(ccxt_config or {})
+        ccxt_payload.setdefault("market_type", self.market_type.value)
+        ccxt_payload.setdefault("symbol_specs", {key: spec.to_dict() for key, spec in self.symbol_specs.items()})
         self.cache_config = (cache_config or MarketDataCacheConfig()).sanitized()
         self.diagnostics_config = (diagnostics_config or MarketDataDiagnosticsConfig()).sanitized()
 
@@ -115,6 +119,7 @@ class MarketDataClient:
             data_source=self.data_source,
             mt5_config=mt5_config,
             itick_config=itick_config,
+            ccxt_config=ccxt_payload,
             live_bar_config=live_bar_config,
             redundant_config=redundant_config,
             history_limit=history_limit,
@@ -444,6 +449,9 @@ class MarketDataClient:
             ok=True,
         )
         return result
+
+    def health_check(self) -> bool:
+        return self._manager.health_check()
 
     def close(self) -> None:
         self._manager.close()
