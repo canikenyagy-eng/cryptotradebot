@@ -26,6 +26,10 @@ def _load_env_file(path: Path | None = None) -> None:
             os.environ[key] = value
 
 
+def load_env_file(path: Path | None = None) -> None:
+    _load_env_file(path)
+
+
 def _parse_pairs(raw: str) -> List[str]:
     pairs = [normalize_symbol(item) for item in raw.split(",") if item.strip()]
     return pairs or ["BTCUSDT", "ETHUSDT"]
@@ -529,13 +533,13 @@ class Settings:
     exit_volatility_rr_cap: float
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls, *, require_telegram: bool = True) -> "Settings":
         _load_env_file()
         token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
         chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-        if not token:
+        if require_telegram and not token:
             raise ValueError("TELEGRAM_BOT_TOKEN is required")
-        if not chat_id:
+        if require_telegram and not chat_id:
             raise ValueError("TELEGRAM_CHAT_ID is required")
 
         return cls(

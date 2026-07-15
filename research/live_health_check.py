@@ -17,7 +17,6 @@ from services.live_health import (
     format_health_message,
 )
 from services.feed_health import build_feed_health_components
-from services.telegram import TelegramSignalService
 
 
 def configure_logging() -> None:
@@ -63,6 +62,8 @@ async def maybe_send_alert(settings: Settings, alert_state: HealthAlertState, re
         alert_state.update(result, alert_sent=False, alert_reason=reason)
         return False, reason
 
+    from services.telegram import TelegramSignalService
+
     telegram = TelegramSignalService(
         token=settings.telegram_bot_token,
         chat_id=settings.telegram_chat_id,
@@ -106,11 +107,13 @@ def print_result(payload: dict[str, object]) -> None:
 def main() -> None:
     configure_logging()
     args = build_parser().parse_args()
-    settings = Settings.from_env()
+    settings = Settings.from_env(require_telegram=False)
     checker = LiveHealthChecker(build_check_settings(settings, args))
     result = checker.check()
     result = combine_health_components(result, build_feed_health_components(settings))
     alert_state = HealthAlertState(build_alert_settings(settings, args))
+    if alert_state.settings.enabled and (not settings.telegram_bot_token or not settings.telegram_chat_id):
+        raise ValueError("Telegram credentials are required when health alerts are enabled")
     alert_sent, alert_reason = asyncio.run(maybe_send_alert(settings, alert_state, result))
     payload = result.to_dict()
     payload["alert_sent"] = alert_sent

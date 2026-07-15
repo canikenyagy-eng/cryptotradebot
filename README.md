@@ -2,9 +2,9 @@
 
 Crypto-first SMC signal bot, forked from the forex `smctradebot` codebase.
 
-Current status: Phase 2 market data. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing and exchange-native OHLCV candles via CCXT.
+Current status: Phase 4 signal-only forward validation. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, and a safe Phase 4 forward-validation runner.
 
-## What Works In Phase 1
+## What Works Now
 
 - Crypto-first defaults in `.env.example`
 - `MARKET_TYPE=crypto_spot`
@@ -13,7 +13,8 @@ Current status: Phase 2 market data. The repo has the existing SMC signal engine
 - Forex 6-character assumptions removed from the main signal/data/backtest path
 - Exchange-native OHLCV candles through `DATA_SOURCE=ccxt`
 - Cache and health-check support through the existing market data client
-- Telegram signal-only flow remains available
+- Phase 3 BTC/ETH backtest calibration docs and signal-only profile
+- Phase 4 CCXT forward-validation runner with Telegram alerts, forward journal, telemetry, heartbeat, and diagnostics
 
 ## Not Ready Yet
 
@@ -43,4 +44,16 @@ Run a backtest once dependencies are installed:
 
 ```bash
 python backtest_runner.py --pairs BTCUSDT,ETHUSDT --history-limit 3000
+```
+
+Run one Phase 4 forward-validation scan without Telegram:
+
+```bash
+python -m research.crypto_forward_validation --no-telegram --print-config
+```
+
+Run continuous Phase 4 signal-only forward validation with Telegram:
+
+```bash
+python -m research.crypto_forward_validation --loop --print-config
 ```
