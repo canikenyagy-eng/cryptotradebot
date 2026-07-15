@@ -2,6 +2,8 @@
 
 Live modes are optional overlays for the Telegram signal engine. They do not change backtest logic and remain disabled unless `ENABLE_LIVE_MODE=1`.
 
+For crypto Phase 4, prefer `python -m research.crypto_forward_validation` and `docs/phase4_crypto_forward_validation.env.example`. That workflow uses explicit BTCUSDT/ETHUSDT pair profiles instead of these preset live-mode overlays.
+
 ## Disabled / Legacy
 
 ```env
@@ -12,13 +14,13 @@ The engine uses normal `.env` settings.
 
 ## Balanced
 
-Research profile:
+Crypto profile:
 
 ```text
-Pairs: EURUSD, EURJPY, CADJPY
-Session: 07-16 UTC / 10-19 MSK
-Min score: pair-specific
-Blocked regime: TREND
+Pairs: BTCUSDT, ETHUSDT
+Session: 24/7
+Min score: 80
+Blocked regime: none
 Exit profile: m15_vol_liq_v1
 ```
 
@@ -31,13 +33,13 @@ LIVE_MODE=balanced
 
 ## Aggressive
 
-Research profile:
+Crypto profile:
 
 ```text
-Pairs: EURUSD, EURJPY, CADJPY
-Session: 07-16 UTC / 10-19 MSK
-Min score: pair-specific
-Blocked regime: TREND
+Pairs: BTCUSDT, ETHUSDT, SOLUSDT
+Session: 24/7
+Min score: 78
+Blocked regime: none
 Exit profile: m15_vol_liq_v1
 ```
 
@@ -50,19 +52,18 @@ LIVE_MODE=aggressive
 
 Notes:
 
-- The validated expansion set is `EURUSD + EURJPY + CADJPY`.
-- `USDJPY` is excluded from the aggressive expansion set after harsh stress testing showed it dragged portfolio AvgR, PF, Monte Carlo p05, and drawdown stability.
-- Do not add `USDJPY` back unless a separate stricter profile passes stress and portfolio validation.
+- The aggressive preset is not the Phase 4 recommended profile.
+- Keep Phase 4 on BTCUSDT/ETHUSDT until forward evidence supports adding SOLUSDT.
 
 ## Conservative
 
-Research profile:
+Crypto profile:
 
 ```text
-Pairs: EURUSD
-Session: 12-16 UTC / 15-19 MSK
+Pairs: BTCUSDT
+Session: 24/7
 Min score: 80
-Blocked regime: TREND
+Blocked regime: none
 Exit profile: m15_vol_liq_v1
 ```
 

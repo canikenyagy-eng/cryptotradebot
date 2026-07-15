@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import argparse
 import logging
 import time
 from dataclasses import dataclass
@@ -20,7 +21,6 @@ from services.live_health import LiveHeartbeatSettings, LiveHeartbeatWriter
 from services.live_telemetry import LiveTelemetryLogger, LiveTelemetrySettings
 from services.market_data_shadow import MarketDataShadowLogger, MarketDataShadowSettings
 from services.pretrade_shadow import PreTradeShadowLogger, PreTradeShadowSettings
-from services.telegram import TelegramSignalService
 
 
 LIVE_PROFILE_PAIRS = ("BTCUSDT", "ETHUSDT")
@@ -405,8 +405,32 @@ def _build_signal_engine(
     )
 
 
-async def run_engine() -> None:
-    settings = Settings.from_env()
+def _build_telegram_signal_service(settings: Settings):
+    from services.telegram import TelegramSignalService
+
+    return TelegramSignalService(
+        token=settings.telegram_bot_token,
+        chat_id=settings.telegram_chat_id,
+        send_retries=settings.telegram_send_retries,
+        retry_base_delay_seconds=settings.telegram_retry_base_delay_seconds,
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run the live SMC signal engine.")
+    parser.add_argument("--once", action="store_true", help="Run one scan cycle and stop")
+    parser.add_argument("--max-cycles", type=int, default=None, help="Run N scan cycles and stop")
+    parser.add_argument("--no-telegram", action="store_true", help="Evaluate and journal signals without Telegram delivery")
+    return parser
+
+
+async def run_engine(
+    *,
+    max_cycles: int | None = None,
+    telegram_enabled: bool = True,
+    require_telegram: bool = True,
+) -> None:
+    settings = Settings.from_env(require_telegram=require_telegram)
     live_mode = _effective_live_mode(settings)
     pair_profiles = _build_live_pair_profiles(settings, live_mode)
     live_pairs = list(pair_profiles.keys()) if settings.enable_pair_profiles and settings.allow_live_pair_profiles and pair_profiles else list(live_mode.pairs)
@@ -520,16 +544,15 @@ async def run_engine() -> None:
             ),
             quote_consumers=[live_bar_builder.on_quote] if live_bar_builder is not None else None,
         )
-    telegram = TelegramSignalService(
-        token=settings.telegram_bot_token,
-        chat_id=settings.telegram_chat_id,
-        send_retries=settings.telegram_send_retries,
-        retry_base_delay_seconds=settings.telegram_retry_base_delay_seconds,
+    telegram = (
+        _build_telegram_signal_service(settings)
+        if telegram_enabled
+        else None
     )
 
     logger = logging.getLogger("engine")
     logger.info(
-        "Started signal engine for pairs: %s | live_profile=%s enabled=%s vol_rr=%s/%s/%s liq_trail=%s | live_mode=%s enabled=%s min_score=%s session=%s regime_block=%s pair_profiles=%s pre_trade_shadow=%s/%s/%s forward_journal=%s heartbeat=%s data_freshness_gate=%s/%ss data_diagnostics=%s itick_ws_shadow=%s live_bar_builder=%s feed_safe_mode=%s block=%s",
+        "Started signal engine for pairs: %s | live_profile=%s enabled=%s vol_rr=%s/%s/%s liq_trail=%s | live_mode=%s enabled=%s min_score=%s session=%s regime_block=%s pair_profiles=%s pre_trade_shadow=%s/%s/%s forward_journal=%s heartbeat=%s data_freshness_gate=%s/%ss data_diagnostics=%s itick_ws_shadow=%s live_bar_builder=%s feed_safe_mode=%s block=%s telegram=%s max_cycles=%s",
         ", ".join(live_pairs),
         settings.exit_profile_preset,
         settings.enable_exit_engine,
@@ -555,6 +578,8 @@ async def run_engine() -> None:
         settings.enable_live_bar_builder,
         settings.enable_feed_safe_mode,
         settings.feed_safe_mode_block_signals,
+        telegram_enabled,
+        max_cycles or "-",
     )
     telemetry.engine_started(
         pairs=live_pairs,
@@ -573,6 +598,7 @@ async def run_engine() -> None:
     if itick_websocket_shadow is not None:
         await itick_websocket_shadow.start(live_pairs)
 
+    completed_cycles = 0
     try:
         while True:
             cycle_started = time.monotonic()
@@ -641,7 +667,7 @@ async def run_engine() -> None:
             sent_count = 0
             for signal in signals:
                 send_started = time.monotonic()
-                delivered = await telegram.send_signal(signal)
+                delivered = await telegram.send_signal(signal) if telegram is not None else False
                 delivery_latency = time.monotonic() - send_started
                 telemetry.telegram_delivery(
                     cycle_id=cycle_id,
@@ -692,6 +718,11 @@ async def run_engine() -> None:
                 except Exception as exc:
                     logger.warning("Market data shadow cycle failed: %s", exc)
 
+            completed_cycles += 1
+            if max_cycles is not None and completed_cycles >= max(1, int(max_cycles)):
+                logger.info("Max cycles reached; stopping signal engine | cycles=%s", completed_cycles)
+                break
+
             elapsed = time.monotonic() - cycle_started
             sleep_for = max(1.0, settings.scan_interval_minutes * 60 - elapsed)
             await asyncio.sleep(sleep_for)
@@ -703,13 +734,22 @@ async def run_engine() -> None:
         market_data.close()
         if shadow_market_data is not None:
             shadow_market_data.close()
-        await telegram.close()
+        if telegram is not None:
+            await telegram.close()
 
 
 def main() -> None:
     configure_logging()
+    args = build_parser().parse_args()
+    max_cycles = 1 if args.once else args.max_cycles
     try:
-        asyncio.run(run_engine())
+        asyncio.run(
+            run_engine(
+                max_cycles=max_cycles,
+                telegram_enabled=not args.no_telegram,
+                require_telegram=not args.no_telegram,
+            )
+        )
     except KeyboardInterrupt:
         logging.getLogger("engine").info("Engine stopped by user")
 

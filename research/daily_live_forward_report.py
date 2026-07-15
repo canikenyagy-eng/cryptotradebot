@@ -16,7 +16,6 @@ from services.daily_forward_report import (
     print_daily_forward_report,
 )
 from services.forward_outcomes import ForwardOutcomeSettings, ForwardOutcomeTracker
-from services.telegram import TelegramSignalService
 
 
 def configure_logging() -> None:
@@ -159,6 +158,8 @@ def should_send_telegram(settings: Settings, args: argparse.Namespace, report: d
 
 
 async def send_telegram_summary(settings: Settings, report: dict[str, object]) -> bool:
+    from services.telegram import TelegramSignalService
+
     telegram = TelegramSignalService(
         token=settings.telegram_bot_token,
         chat_id=settings.telegram_chat_id,
@@ -174,7 +175,7 @@ async def send_telegram_summary(settings: Settings, report: dict[str, object]) -
 def main() -> None:
     configure_logging()
     args = build_parser().parse_args()
-    settings = Settings.from_env()
+    settings = Settings.from_env(require_telegram=False)
     outcome_update = {"enabled": False, "reason": "skipped"}
     if not args.skip_outcome_update:
         outcome_update = update_outcomes(settings, args)
@@ -185,6 +186,8 @@ def main() -> None:
     print_daily_forward_report(report)
     telegram_sent = False
     if should_send_telegram(settings, args, report):
+        if not settings.telegram_bot_token or not settings.telegram_chat_id:
+            raise ValueError("Telegram credentials are required when daily forward report Telegram sending is enabled")
         telegram_sent = asyncio.run(send_telegram_summary(settings, report))
         print(f"Telegram summary sent: {telegram_sent}")
     print(f"Report saved: {builder.settings.report_path}")

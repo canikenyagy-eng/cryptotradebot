@@ -23,7 +23,7 @@ def _parse_time(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _read_redundancy_jsonl(path: Path) -> list[dict[str, object]]:
+def _read_jsonl(path: Path) -> list[dict[str, object]]:
     if not path.exists():
         return []
     rows: list[dict[str, object]] = []
@@ -36,9 +36,13 @@ def _read_redundancy_jsonl(path: Path) -> list[dict[str, object]]:
                 payload = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if isinstance(payload, dict) and payload.get("type") == "market_data_redundancy":
+            if isinstance(payload, dict):
                 rows.append(payload)
     return rows
+
+
+def _read_redundancy_jsonl(path: Path) -> list[dict[str, object]]:
+    return [row for row in _read_jsonl(path) if row.get("type") == "market_data_redundancy"]
 
 
 def _build_redundancy_report(path: Path, recent_minutes: int) -> dict[str, object]:
@@ -200,6 +204,65 @@ def _redundancy_component(settings: Settings, *, recent_minutes: int) -> dict[st
     )
 
 
+def _ccxt_component(settings: Settings, *, recent_minutes: int) -> dict[str, object]:
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=max(1, int(recent_minutes)))
+    path = Path(settings.market_data_diagnostics_log_path)
+    rows = []
+    for row in _read_jsonl(path):
+        observed_at = _parse_time(row.get("observed_at"))
+        if observed_at is None or observed_at < cutoff:
+            continue
+        if str(row.get("type")) != "market_data_fetch":
+            continue
+        if str(row.get("data_source", "")).lower() != "ccxt":
+            continue
+        rows.append(row)
+
+    trigger_timeframe = settings.trigger_timeframe.upper()
+    expected_pairs = {str(pair).upper() for pair in settings.pairs}
+    trigger_rows = [
+        row
+        for row in rows
+        if str(row.get("timeframe", "")).upper() == trigger_timeframe
+        and str(row.get("pair", "")).upper() in expected_pairs
+    ]
+    seen_pairs = {str(row.get("pair", "")).upper() for row in trigger_rows}
+    missing_pairs = sorted(expected_pairs - seen_pairs)
+    failed = [row for row in trigger_rows if row.get("ok") is not True]
+    slow = [row for row in trigger_rows if row.get("slow") is True]
+    stale = [row for row in trigger_rows if row.get("stale") is True]
+    stale_by_timeframe = Counter(str(row.get("timeframe", "unknown")).upper() for row in rows if row.get("stale") is True)
+
+    ok = bool(trigger_rows) and not missing_pairs and not failed and not slow and not stale
+    reason = (
+        "healthy"
+        if ok
+        else (
+            f"trigger_rows={len(trigger_rows)} missing={missing_pairs} "
+            f"failed={len(failed)} slow={len(slow)} stale={len(stale)}"
+        )
+    )
+    return _component(
+        "ccxt_market_data",
+        ok,
+        reason,
+        {
+            "log_path": str(path),
+            "recent_minutes": int(recent_minutes),
+            "rows": len(rows),
+            "trigger_timeframe": trigger_timeframe,
+            "trigger_rows": len(trigger_rows),
+            "seen_pairs": sorted(seen_pairs),
+            "missing_pairs": missing_pairs,
+            "failed_trigger_fetches": len(failed),
+            "slow_trigger_fetches": len(slow),
+            "stale_trigger_fetches": len(stale),
+            "stale_by_timeframe": dict(stale_by_timeframe),
+        },
+    )
+
+
 def build_feed_health_components(
     settings: Settings,
     *,
@@ -236,6 +299,8 @@ def build_feed_health_components(
     include_redundancy = settings.feed_health_check_redundancy if check_redundancy is None else bool(check_redundancy)
 
     components: list[dict[str, object]] = []
+    if source == "ccxt":
+        components.append(_ccxt_component(settings, recent_minutes=window_minutes))
     uses_itick_stream = settings.enable_itick_websocket_shadow or settings.enable_live_bar_builder or source in {"live_bars", "redundant"}
     if include_itick and uses_itick_stream:
         components.append(_itick_component(settings, recent_minutes=window_minutes))
