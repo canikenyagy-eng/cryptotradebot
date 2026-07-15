@@ -8,7 +8,7 @@ from pathlib import Path
 from config import Settings
 from data.market_data import MarketDataCacheConfig, MarketDataClient
 from services.forward_outcomes import ForwardOutcomeSettings, ForwardOutcomeTracker
-from main import _itick_config_from_settings, _live_bar_config_from_settings, _redundant_config_from_settings
+from main import _ccxt_config_from_settings, _itick_config_from_settings, _live_bar_config_from_settings, _redundant_config_from_settings
 
 
 def configure_logging() -> None:
@@ -66,6 +66,7 @@ def build_market_data(settings: Settings, args: argparse.Namespace, history_limi
         mt5_server=settings.mt5_server,
         mt5_path=settings.mt5_path,
         itick_config=_itick_config_from_settings(settings),
+        ccxt_config=_ccxt_config_from_settings(settings),
         live_bar_config=_live_bar_config_from_settings(settings),
         redundant_config=_redundant_config_from_settings(settings),
         cache_config=MarketDataCacheConfig(
@@ -136,7 +137,7 @@ def print_summary(summary: dict[str, object], *, written: int) -> None:
 def main() -> None:
     configure_logging()
     args = build_parser().parse_args()
-    settings = Settings.from_env()
+    settings = Settings.from_env(require_telegram=False)
     tracker_settings = build_tracker_settings(settings, args)
     tracker = ForwardOutcomeTracker(tracker_settings)
     market_data = build_market_data(settings, args, tracker.settings.history_limit)
