@@ -127,7 +127,7 @@ def print_report(report: Mapping[str, object]) -> None:
 def main() -> None:
     configure_logging()
     args = build_parser().parse_args()
-    settings = Settings.from_env()
+    settings = Settings.from_env(require_telegram=False)
     reporter = ForwardPerformanceReporter(build_settings(settings, args))
     report = reporter.build_report()
     if args.no_rows:
