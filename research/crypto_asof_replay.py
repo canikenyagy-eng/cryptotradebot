@@ -60,6 +60,27 @@ def build_parser() -> argparse.ArgumentParser:
         default=_env_str("PHASE13_OUTCOME_SUMMARY_JSON", "reports/crypto_phase13_asof_replay_outcome_summary.json"),
     )
     parser.add_argument(
+        "--step-source",
+        choices=("trigger", "live_journal", "trigger_plus_live_journal"),
+        default=_env_str("PHASE13_STEP_SOURCE", "trigger"),
+        help="Replay normal trigger candle steps, live journal scan steps, or both.",
+    )
+    parser.add_argument(
+        "--live-journal",
+        default=_env_str("PHASE13_LIVE_JOURNAL_JSONL", ""),
+        help="Optional Phase 4 live journal for parity audit and live-journal scan steps.",
+    )
+    parser.add_argument(
+        "--parity-report-json",
+        default=_env_str("PHASE13_PARITY_REPORT_JSON", "reports/crypto_phase13_parity_report.json"),
+        help="Output path for live-vs-replay parity report when --live-journal is set.",
+    )
+    parser.add_argument(
+        "--market-diagnostics-jsonl",
+        default=_env_str("PHASE13_MARKET_DIAGNOSTICS_JSONL", "logs/crypto_forward_market_data.jsonl"),
+        help="Optional live market-data diagnostics JSONL attached to parity rows.",
+    )
+    parser.add_argument(
         "--allow-partial-warmup",
         action="store_true",
         default=not _env_bool("PHASE13_REQUIRE_FULL_WARMUP", True),
@@ -93,6 +114,10 @@ def build_replay_settings(args: argparse.Namespace, app_settings: Settings) -> C
         outcome_timeframe=args.outcome_timeframe or app_settings.forward_outcome_timeframe,
         risk_per_trade_pct=args.risk_per_trade_pct,
         require_full_warmup=not args.allow_partial_warmup,
+        step_source=args.step_source,
+        live_journal_path=args.live_journal or None,
+        parity_report_path=args.parity_report_json or None,
+        market_diagnostics_path=args.market_diagnostics_jsonl or None,
     ).normalized()
 
 
@@ -114,12 +139,20 @@ def print_config(replay_settings: CryptoAsofReplaySettings, app_settings: Settin
         "end": replay_settings.end,
         "max_steps": replay_settings.max_steps,
         "require_full_warmup": replay_settings.require_full_warmup,
+        "step_source": replay_settings.step_source,
+        "live_journal": None if replay_settings.live_journal_path is None else str(replay_settings.live_journal_path),
         "paths": {
             "report": str(replay_settings.report_path),
             "decisions": str(replay_settings.decisions_path),
             "journal": str(replay_settings.journal_path),
             "outcomes": str(replay_settings.outcomes_path),
             "outcome_summary": str(replay_settings.outcome_summary_path),
+            "parity_report": None
+            if replay_settings.parity_report_path is None
+            else str(replay_settings.parity_report_path),
+            "market_diagnostics": None
+            if replay_settings.market_diagnostics_path is None
+            else str(replay_settings.market_diagnostics_path),
         },
         "no_future_rule": "Every engine market-data fetch is clipped to candles with timestamp <= replay step.",
     }
@@ -144,6 +177,17 @@ def print_summary(report: dict[str, object]) -> None:
             roi=performance.get("roi_pct"),
         )
     )
+    parity = report.get("parity") if isinstance(report.get("parity"), dict) else None
+    if parity:
+        print(
+            "Parity: status={status} exact={exact} live_only={live_only} replay_only={replay_only} report={path}".format(
+                status=parity.get("status"),
+                exact=parity.get("exact_matches"),
+                live_only=parity.get("live_only"),
+                replay_only=parity.get("replay_only"),
+                path=parity.get("report_path"),
+            )
+        )
     print(f"Report: {report.get('paths', {}).get('report') if isinstance(report.get('paths'), dict) else ''}")
 
 
