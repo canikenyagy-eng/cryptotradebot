@@ -2,7 +2,7 @@
 
 Crypto-first SMC signal bot, forked from the forex `smctradebot` codebase.
 
-Current status: Phase 10 testnet order preview. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, a safe Phase 4 forward-validation runner, Phase 5 outcome/reporting dashboards, Phase 6 virtual account reporting, Phase 7 readiness monitoring, Phase 8 dry-run order-intent validation, Phase 9 sandbox execution/reconciliation scaffolding, and Phase 10 CCXT-style testnet request previews.
+Current status: Phase 11 real-time market safety. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, a safe Phase 4 forward-validation runner, Phase 5 outcome/reporting dashboards, Phase 6 virtual account reporting, Phase 7 readiness monitoring, Phase 8 dry-run order-intent validation, Phase 9 sandbox execution/reconciliation scaffolding, Phase 10 CCXT-style testnet request previews, and Phase 11 realtime ticker/order-book/time safety checks.
 
 ## What Works Now
 
@@ -21,6 +21,7 @@ Current status: Phase 10 testnet order preview. The repo has the existing SMC si
 - Phase 8 dry-run order-intent generation with exchange constraints, sizing checks, and safety preflight blocks
 - Phase 9 dry-run/sandbox-stub execution architecture with idempotency keys, kill-switch checks, lifecycle states, and reconciliation reports
 - Phase 10 CCXT-style testnet order request previews with source-safety checks and no exchange submission
+- Phase 11 realtime market safety checks for ticker freshness, spread, exchange time drift, entry/current price deviation, and stale-cache blocking
 
 ## Not Ready Yet
 
@@ -100,4 +101,10 @@ Build Phase 10 testnet order request previews:
 
 ```bash
 python -m research.crypto_testnet_order_preview
+```
+
+Run Phase 11 realtime market safety checks:
+
+```bash
+python -m research.crypto_market_safety
 ```
