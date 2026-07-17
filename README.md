@@ -2,7 +2,7 @@
 
 Crypto-first SMC signal bot, forked from the forex `smctradebot` codebase.
 
-Current status: Phase 8 execution-design dry run. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, a safe Phase 4 forward-validation runner, Phase 5 outcome/reporting dashboards, Phase 6 virtual account reporting, Phase 7 readiness monitoring, and Phase 8 dry-run order-intent validation.
+Current status: Phase 9 sandbox execution architecture. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, a safe Phase 4 forward-validation runner, Phase 5 outcome/reporting dashboards, Phase 6 virtual account reporting, Phase 7 readiness monitoring, Phase 8 dry-run order-intent validation, and Phase 9 sandbox execution/reconciliation scaffolding.
 
 ## What Works Now
 
@@ -18,11 +18,13 @@ Current status: Phase 8 execution-design dry run. The repo has the existing SMC 
 - Phase 5 forward outcome tracking, performance aggregation, feed-health decisioning, and local dashboard output
 - Phase 6 paper-trading replay from forward signals and outcomes with ledger, equity metrics, and local dashboard output
 - Phase 7 paper-trading monitor that refreshes outcomes, rebuilds paper reports, and blocks live execution design until readiness guardrails pass
-- Phase 8 dry-run order-intent generation with exchange constraints, sizing checks, and kill-switch preflight blocks
+- Phase 8 dry-run order-intent generation with exchange constraints, sizing checks, and safety preflight blocks
+- Phase 9 dry-run/sandbox-stub execution architecture with idempotency keys, kill-switch checks, lifecycle states, and reconciliation reports
 
 ## Not Ready Yet
 
 - Live exchange API keys, balances, and order placement are still intentionally absent
+- Real testnet order routing is still a future phase
 - Fees, funding, and order-book slippage calibration still need live-execution design review
 - Real exchange execution is intentionally not implemented yet
 
@@ -85,4 +87,10 @@ Build Phase 8 dry-run order intents and execution preflight output:
 
 ```bash
 python -m research.crypto_execution_dry_run --sent-only
+```
+
+Run Phase 9 sandbox execution architecture checks:
+
+```bash
+python -m research.crypto_sandbox_execution
 ```
