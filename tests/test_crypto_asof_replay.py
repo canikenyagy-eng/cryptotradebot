@@ -17,6 +17,7 @@ from services.crypto_asof_replay import (
     CryptoAsofReplayEngine,
     CryptoAsofReplaySettings,
     StaticMarketDataProvider,
+    build_phase13_parity_report,
     performance_summary,
 )
 from services.forward_outcomes import ForwardOutcome
@@ -192,6 +193,11 @@ class CryptoAsofReplayTests(unittest.TestCase):
         self.assertTrue(engine.seen_max_times)
         self.assertLessEqual(max(engine.seen_max_times), as_of)
         self.assertGreater(sum(access.future_rows_blocked for access in result.accesses), 0)
+        payload = result.decisions[0].to_dict()
+        self.assertEqual(len(payload["market_data_accesses"]), 3)
+        trigger_access = [row for row in payload["market_data_accesses"] if row["timeframe"] == "M5"][0]
+        self.assertEqual(trigger_access["returned_last_time"], as_of.isoformat())
+        self.assertEqual(trigger_access["returned_lag_seconds"], 0.0)
 
     def test_phase13_engine_writes_report_with_no_future_guard(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -248,6 +254,133 @@ class CryptoAsofReplayTests(unittest.TestCase):
         self.assertEqual(summary["profit_factor"], 3.0)
         self.assertEqual(summary["max_drawdown_r"], 1.0)
         self.assertEqual(summary["roi_pct"], 2.0)
+
+    def test_parity_report_flags_live_replay_mismatch(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            live_journal = root / "live.jsonl"
+            replay_decisions = root / "decisions.jsonl"
+            replay_journal = root / "replay.jsonl"
+            diagnostics = root / "diagnostics.jsonl"
+            report_path = root / "parity.json"
+
+            live_journal.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "forward_signal_candidate",
+                                "version": 1,
+                                "observed_at": "2026-01-01T00:12:30+00:00",
+                                "cycle_id": "live-1",
+                                "journal_id": "live-journal-1",
+                                "signal": {
+                                    "symbol": "BTCUSDT",
+                                    "side": "BUY",
+                                    "generated_at": "2026-01-01T00:05:00+00:00",
+                                    "fingerprint": "live-fp",
+                                    "score": 82,
+                                    "entry": 100.0,
+                                    "stop_loss": 99.0,
+                                    "take_profit": 102.0,
+                                    "entry_mode": "MARKET",
+                                    "entry_source": "test",
+                                    "regime_label": "RANGE",
+                                    "trigger_event": "BOS",
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "forward_signal_delivery",
+                                "journal_id": "live-journal-1",
+                                "fingerprint": "live-fp",
+                                "status": "sent",
+                                "delivered": True,
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            replay_decisions.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "phase13_replay_decision",
+                                "as_of": "2026-01-01T00:05:00+00:00",
+                                "symbol": "BTCUSDT",
+                                "state": "rejected",
+                                "stage": "scoring",
+                                "reason": "score below threshold",
+                                "score": 77,
+                                "details": {"regime_label": "RANGE", "threshold": 80},
+                                "visible_frames": {"M5": {"rows": 10, "last": "2026-01-01T00:05:00+00:00"}},
+                                "market_data_accesses": [
+                                    {
+                                        "symbol": "BTCUSDT",
+                                        "timeframe": "M5",
+                                        "returned_last_time": "2026-01-01T00:05:00+00:00",
+                                    }
+                                ],
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "phase13_replay_decision",
+                                "as_of": "2026-01-01T00:10:00+00:00",
+                                "symbol": "BTCUSDT",
+                                "state": "rejected",
+                                "stage": "regime_gate",
+                                "reason": "blocked regime label",
+                                "details": {"regime_label": "TREND"},
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            replay_journal.write_text("", encoding="utf-8")
+            diagnostics.write_text(
+                json.dumps(
+                    {
+                        "type": "market_data_fetch",
+                        "observed_at": "2026-01-01T00:12:00+00:00",
+                        "pair": "BTCUSDT",
+                        "timeframe": "M5",
+                        "served_from": "provider",
+                        "ok": True,
+                        "stale": False,
+                        "last_candle_time": "2026-01-01T00:10:00+00:00",
+                        "rows": 1200,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            report = build_phase13_parity_report(
+                live_journal_path=live_journal,
+                replay_decisions_path=replay_decisions,
+                replay_journal_path=replay_journal,
+                market_diagnostics_path=diagnostics,
+                output_path=report_path,
+                trigger_timeframe="M5",
+            )
+
+            self.assertEqual(report["status"], "mismatch")
+            self.assertEqual(report["live_candidates"], 1)
+            self.assertEqual(report["exact_matches"], 0)
+            self.assertEqual(report["live_only"], 1)
+            self.assertEqual(report["classification_counts"]["replay_rejected_at_scan_time"], 1)
+            comparison = report["live_comparisons"][0]
+            self.assertEqual(comparison["scan_time_replay_decision"]["stage"], "regime_gate")
+            self.assertEqual(comparison["signal_time_replay_decision"]["stage"], "scoring")
+            self.assertEqual(comparison["nearby_live_market_data"][0]["served_from"], "provider")
+            self.assertTrue(report_path.exists())
 
 
 if __name__ == "__main__":

@@ -122,3 +122,9 @@ Run Phase 13 honest as-of replay validation:
 ```bash
 python -m research.crypto_asof_replay --max-steps 96
 ```
+
+Run Phase 13 live-vs-replay parity audit:
+
+```bash
+python -m research.crypto_asof_replay --live-journal logs/crypto_forward_journal.jsonl --step-source live_journal --max-steps 500
+```

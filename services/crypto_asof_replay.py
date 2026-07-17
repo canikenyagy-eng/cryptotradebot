@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,6 +65,30 @@ def _iso(value: object | None) -> str | None:
     return _timestamp(value).isoformat()
 
 
+def _optional_path(value: Path | str | None) -> Path | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return Path(text)
+
+
+def _timeframe_delta(timeframe: str) -> pd.Timedelta:
+    value = str(timeframe or "M5").strip().upper()
+    if value.startswith("M") and value[1:].isdigit():
+        return pd.Timedelta(int(value[1:]) * 60, unit="s")
+    if value.startswith("H") and value[1:].isdigit():
+        return pd.Timedelta(int(value[1:]) * 3600, unit="s")
+    if value.startswith("D") and value[1:].isdigit():
+        return pd.Timedelta(int(value[1:]) * 86400, unit="s")
+    return pd.Timedelta(300, unit="s")
+
+
+def _floor_to_timeframe(value: object, timeframe: str) -> pd.Timestamp:
+    return _timestamp(value).floor(_timeframe_delta(timeframe))
+
+
 def _frame_window(frame: pd.DataFrame) -> dict[str, object]:
     if frame.empty:
         return {"rows": 0, "first": None, "last": None}
@@ -91,6 +115,23 @@ def _clean_pair_list(value: Sequence[str] | str) -> tuple[str, ...]:
     return tuple(sorted({normalize_symbol(item) for item in raw if str(item).strip()}))
 
 
+def _read_jsonl(path: Path | str) -> list[dict[str, object]]:
+    file_path = Path(path)
+    if not file_path.exists():
+        return []
+    rows: list[dict[str, object]] = []
+    for line in file_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
+
+
 class OhlcvProvider(Protocol):
     def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int | None = None) -> pd.DataFrame:
         ...
@@ -109,10 +150,15 @@ class AsOfAccess:
     as_of: str
     requested_limit: int | None
     full_rows: int
+    visible_rows: int
     returned_rows: int
+    limit_truncated_rows: int
     future_rows_blocked: int
+    full_first_time: str | None
     full_last_time: str | None
+    returned_first_time: str | None
     returned_last_time: str | None
+    returned_lag_seconds: float | None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -121,10 +167,15 @@ class AsOfAccess:
             "as_of": self.as_of,
             "requested_limit": self.requested_limit,
             "full_rows": self.full_rows,
+            "visible_rows": self.visible_rows,
             "returned_rows": self.returned_rows,
+            "limit_truncated_rows": self.limit_truncated_rows,
             "future_rows_blocked": self.future_rows_blocked,
+            "full_first_time": self.full_first_time,
             "full_last_time": self.full_last_time,
+            "returned_first_time": self.returned_first_time,
             "returned_last_time": self.returned_last_time,
+            "returned_lag_seconds": self.returned_lag_seconds,
         }
 
 
@@ -178,6 +229,9 @@ class AsOfMarketDataProvider(MarketDataProvider):
         result = visible.tail(max(1, int(request_limit))).copy()
         if not result.empty and result.index.max() > self.as_of:
             raise AssertionError(f"As-of provider leaked future candles for {clean_symbol} {tf}")
+        returned_lag_seconds = None
+        if not result.empty:
+            returned_lag_seconds = round(max(0.0, (self.as_of - _timestamp(result.index[-1])).total_seconds()), 3)
         self.access_log.append(
             AsOfAccess(
                 symbol=clean_symbol,
@@ -185,10 +239,15 @@ class AsOfMarketDataProvider(MarketDataProvider):
                 as_of=self.as_of.isoformat(),
                 requested_limit=int(request_limit),
                 full_rows=int(len(full)),
+                visible_rows=int(len(visible)),
                 returned_rows=int(len(result)),
+                limit_truncated_rows=max(0, int(len(visible) - len(result))),
                 future_rows_blocked=int((full.index > self.as_of).sum()),
+                full_first_time=None if full.empty else _iso(full.index[0]),
                 full_last_time=None if full.empty else _iso(full.index[-1]),
+                returned_first_time=None if result.empty else _iso(result.index[0]),
                 returned_last_time=None if result.empty else _iso(result.index[-1]),
+                returned_lag_seconds=returned_lag_seconds,
             )
         )
         return result
@@ -226,6 +285,7 @@ class ReplayDecision:
     signal: TradeSignal | None = None
     details: Mapping[str, object] | None = None
     visible_frames: Mapping[str, Mapping[str, object]] | None = None
+    market_data_accesses: Sequence[Mapping[str, object]] | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -239,13 +299,19 @@ class ReplayDecision:
             "reason": self.reason,
             "score": self.score,
             "visible_frames": dict(self.visible_frames or {}),
+            "market_data_accesses": list(self.market_data_accesses or []),
         }
         if self.signal is not None:
             payload["fingerprint"] = self.signal.fingerprint()
             payload["side"] = self.signal.side
+            payload["generated_at"] = self.signal.generated_at.isoformat()
             payload["entry"] = self.signal.entry
             payload["stop_loss"] = self.signal.stop_loss
             payload["take_profit"] = self.signal.take_profit
+            payload["entry_mode"] = self.signal.entry_mode
+            payload["entry_source"] = self.signal.entry_source
+            payload["regime_label"] = self.signal.regime_label
+            payload["trigger_event"] = self.signal.trigger_event
         if self.details:
             payload["details"] = dict(self.details)
         return payload
@@ -274,9 +340,11 @@ class AsofReplayScanner:
         pair_list = [self.engine._normalize_pair(item) for item in pairs]
         pair_frames: dict[str, tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]] = {}
         visible_by_pair: dict[str, dict[str, Mapping[str, object]]] = {}
+        accesses_by_pair: dict[str, list[Mapping[str, object]]] = {}
         decisions_by_pair: dict[str, ReplayDecision] = {}
 
         for pair in pair_list:
+            access_start = len(self.market_data.access_log)
             try:
                 htf, ltf, trigger = self.engine._fetch_frames(pair)
                 pair_frames[pair] = (htf, ltf, trigger)
@@ -285,7 +353,17 @@ class AsofReplayScanner:
                     self.engine.ltf_timeframe: _frame_window(ltf),
                     self.engine.trigger_timeframe: _frame_window(trigger),
                 }
+                accesses_by_pair[pair] = [
+                    item.to_dict()
+                    for item in self.market_data.access_log[access_start:]
+                    if item.symbol == pair
+                ]
             except Exception as exc:
+                accesses_by_pair[pair] = [
+                    item.to_dict()
+                    for item in self.market_data.access_log[access_start:]
+                    if item.symbol == pair
+                ]
                 decisions_by_pair[pair] = ReplayDecision(
                     cycle_id=cycle_id,
                     as_of=timestamp.isoformat(),
@@ -294,6 +372,7 @@ class AsofReplayScanner:
                     stage="data",
                     reason=str(exc),
                     visible_frames=visible_by_pair.get(pair, {}),
+                    market_data_accesses=accesses_by_pair.get(pair, []),
                 )
 
         universe = set(pair_frames.keys())
@@ -330,6 +409,7 @@ class AsofReplayScanner:
                     score=evaluation.score_value,
                     details=evaluation.details,
                     visible_frames=visible_by_pair.get(pair, {}),
+                    market_data_accesses=accesses_by_pair.get(pair, []),
                 )
                 continue
 
@@ -345,6 +425,7 @@ class AsofReplayScanner:
                 signal=evaluation.signal,
                 details={"threshold_used": evaluation.threshold_used, "regime_label": evaluation.regime_label},
                 visible_frames=visible_by_pair.get(pair, {}),
+                market_data_accesses=accesses_by_pair.get(pair, []),
             )
 
         kept, dropped = self.engine.correlation_cap.filter(candidates)
@@ -359,6 +440,7 @@ class AsofReplayScanner:
                 reason=drop.reason,
                 context={"kept_pair": drop.kept_pair, "correlation": drop.correlation},
                 visible_frames=visible_by_pair.get(drop.pair, {}),
+                market_data_accesses=accesses_by_pair.get(drop.pair, []),
                 previous=decisions_by_pair.get(drop.pair),
             )
 
@@ -373,6 +455,7 @@ class AsofReplayScanner:
                 reason=drop.reason,
                 context=drop.context,
                 visible_frames=visible_by_pair.get(drop.pair, {}),
+                market_data_accesses=accesses_by_pair.get(drop.pair, []),
                 previous=decisions_by_pair.get(drop.pair),
             )
 
@@ -387,6 +470,7 @@ class AsofReplayScanner:
                 reason=drop.reason,
                 context=drop.context,
                 visible_frames=visible_by_pair.get(drop.pair, {}),
+                market_data_accesses=accesses_by_pair.get(drop.pair, []),
                 previous=decisions_by_pair.get(drop.pair),
             )
 
@@ -404,6 +488,7 @@ class AsofReplayScanner:
                     reason=drop.reason,
                     context=drop.context,
                     visible_frames=visible_by_pair.get(drop.pair, {}),
+                    market_data_accesses=accesses_by_pair.get(drop.pair, []),
                     previous=decisions_by_pair.get(drop.pair),
                 )
                 continue
@@ -433,6 +518,7 @@ class AsofReplayScanner:
                         signal=signal,
                         details=result.details,
                         visible_frames=visible_by_pair.get(signal.symbol, {}),
+                        market_data_accesses=accesses_by_pair.get(signal.symbol, []),
                     )
                     continue
                 filtered.append(signal)
@@ -450,6 +536,7 @@ class AsofReplayScanner:
                 score=signal.score,
                 signal=signal,
                 visible_frames=visible_by_pair.get(signal.symbol, {}),
+                market_data_accesses=accesses_by_pair.get(signal.symbol, []),
             )
 
         return ReplayCycleResult(
@@ -470,6 +557,7 @@ class AsofReplayScanner:
         reason: str,
         context: Mapping[str, object],
         visible_frames: Mapping[str, Mapping[str, object]],
+        market_data_accesses: Sequence[Mapping[str, object]],
         previous: ReplayDecision | None,
     ) -> ReplayDecision:
         return ReplayDecision(
@@ -483,6 +571,7 @@ class AsofReplayScanner:
             signal=previous.signal if previous else None,
             details=context,
             visible_frames=visible_frames,
+            market_data_accesses=market_data_accesses,
         )
 
 
@@ -501,8 +590,16 @@ class CryptoAsofReplaySettings:
     outcome_timeframe: str = "M15"
     risk_per_trade_pct: float = 1.0
     require_full_warmup: bool = True
+    step_source: str = "trigger"
+    live_journal_path: Path | str | None = None
+    parity_report_path: Path | str | None = Path("reports/crypto_phase13_parity_report.json")
+    market_diagnostics_path: Path | str | None = Path("logs/crypto_forward_market_data.jsonl")
 
     def normalized(self) -> "CryptoAsofReplaySettings":
+        step_source = str(self.step_source or "trigger").strip().lower()
+        if step_source not in {"trigger", "live_journal", "trigger_plus_live_journal"}:
+            step_source = "trigger"
+        live_journal_path = _optional_path(self.live_journal_path)
         return CryptoAsofReplaySettings(
             pairs=_clean_pair_list(self.pairs),
             start=self.start,
@@ -517,6 +614,10 @@ class CryptoAsofReplaySettings:
             outcome_timeframe=str(self.outcome_timeframe or "M15").upper(),
             risk_per_trade_pct=max(0.0, float(self.risk_per_trade_pct)),
             require_full_warmup=bool(self.require_full_warmup),
+            step_source=step_source,
+            live_journal_path=live_journal_path,
+            parity_report_path=_optional_path(self.parity_report_path) if live_journal_path is not None else None,
+            market_diagnostics_path=_optional_path(self.market_diagnostics_path) if live_journal_path is not None else None,
         )
 
 
@@ -578,6 +679,7 @@ class CryptoAsofReplayEngine:
             json.dumps(outcome_summary, indent=2, sort_keys=True, default=str),
             encoding="utf-8",
         )
+        parity_summary = self._write_parity_report()
 
         report = self._report(
             frames=frames,
@@ -586,6 +688,7 @@ class CryptoAsofReplayEngine:
             journal_count=journal_count,
             outcome_summary=outcome_summary,
             performance=performance,
+            parity_summary=parity_summary,
         )
         write_json(report, self.settings.report_path)
         return report
@@ -603,19 +706,40 @@ class CryptoAsofReplayEngine:
         start = _timestamp_or_none(self.settings.start)
         end = _timestamp_or_none(self.settings.end)
         trigger_times: set[pd.Timestamp] = set()
-        for pair in self.settings.pairs:
-            frame = frames.get((pair, self.trigger_timeframe), pd.DataFrame())
-            for timestamp in frame.index:
-                point = _timestamp(timestamp)
-                if start is not None and point < start:
-                    continue
-                if end is not None and point > end:
-                    continue
-                trigger_times.add(point)
+        if self.settings.step_source in {"trigger", "trigger_plus_live_journal"}:
+            for pair in self.settings.pairs:
+                frame = frames.get((pair, self.trigger_timeframe), pd.DataFrame())
+                for timestamp in frame.index:
+                    point = _timestamp(timestamp)
+                    if start is not None and point < start:
+                        continue
+                    if end is not None and point > end:
+                        continue
+                    trigger_times.add(point)
+        if self.settings.step_source in {"live_journal", "trigger_plus_live_journal"}:
+            trigger_times.update(self._live_journal_steps(start=start, end=end))
         steps = sorted(trigger_times)
         if self.settings.require_full_warmup:
             steps = [step for step in steps if self._has_warmup(frames, step)]
         return steps[: self.settings.max_steps]
+
+    def _live_journal_steps(self, *, start: pd.Timestamp | None, end: pd.Timestamp | None) -> set[pd.Timestamp]:
+        if self.settings.live_journal_path is None:
+            return set()
+        steps: set[pd.Timestamp] = set()
+        for row in _read_jsonl(self.settings.live_journal_path):
+            if row.get("type") != "forward_signal_candidate":
+                continue
+            observed_at = row.get("observed_at")
+            if observed_at is None:
+                continue
+            point = _floor_to_timeframe(observed_at, self.trigger_timeframe)
+            if start is not None and point < start:
+                continue
+            if end is not None and point > end:
+                continue
+            steps.add(point)
+        return steps
 
     def _has_warmup(self, frames: Mapping[tuple[str, str], pd.DataFrame], step: pd.Timestamp) -> bool:
         required = {
@@ -637,7 +761,10 @@ class CryptoAsofReplayEngine:
             self.settings.outcomes_path,
             self.settings.outcome_summary_path,
             self.settings.report_path,
+            self.settings.parity_report_path,
         ):
+            if path is None:
+                continue
             file_path = Path(path)
             if file_path.exists():
                 file_path.unlink()
@@ -705,6 +832,31 @@ class CryptoAsofReplayEngine:
                 fh.write(json.dumps(outcome.payload, sort_keys=True, default=str) + "\n")
         return outcomes
 
+    def _write_parity_report(self) -> dict[str, object] | None:
+        if self.settings.live_journal_path is None or self.settings.parity_report_path is None:
+            return None
+        if not Path(self.settings.live_journal_path).exists():
+            return {
+                "enabled": False,
+                "reason": f"live journal not found: {self.settings.live_journal_path}",
+            }
+        parity = build_phase13_parity_report(
+            live_journal_path=self.settings.live_journal_path,
+            replay_decisions_path=self.settings.decisions_path,
+            replay_journal_path=self.settings.journal_path,
+            market_diagnostics_path=self.settings.market_diagnostics_path,
+            output_path=self.settings.parity_report_path,
+            trigger_timeframe=self.trigger_timeframe,
+        )
+        return {
+            "enabled": True,
+            "report_path": str(self.settings.parity_report_path),
+            "status": parity.get("status"),
+            "exact_matches": parity.get("exact_matches"),
+            "live_only": parity.get("live_only"),
+            "replay_only": parity.get("replay_only"),
+        }
+
     def _report(
         self,
         *,
@@ -714,6 +866,7 @@ class CryptoAsofReplayEngine:
         journal_count: int,
         outcome_summary: Mapping[str, object],
         performance: Mapping[str, object],
+        parity_summary: Mapping[str, object] | None,
     ) -> dict[str, object]:
         decisions = [decision for result in cycle_results for decision in result.decisions]
         state_counts = Counter(decision.state for decision in decisions)
@@ -741,6 +894,13 @@ class CryptoAsofReplayEngine:
                 "outcome_timeframe": self.settings.outcome_timeframe,
                 "risk_per_trade_pct": self.settings.risk_per_trade_pct,
                 "require_full_warmup": self.settings.require_full_warmup,
+                "step_source": self.settings.step_source,
+                "live_journal_path": None
+                if self.settings.live_journal_path is None
+                else str(self.settings.live_journal_path),
+                "market_diagnostics_path": None
+                if self.settings.market_diagnostics_path is None
+                else str(self.settings.market_diagnostics_path),
                 "replay_adjustments": [
                     "SignalEngine wall-clock candle freshness gate is disabled; AsOfMarketDataProvider enforces simulated-time freshness and no-future access.",
                 ],
@@ -751,6 +911,9 @@ class CryptoAsofReplayEngine:
                 "journal": str(self.settings.journal_path),
                 "outcomes": str(self.settings.outcomes_path),
                 "outcome_summary": str(self.settings.outcome_summary_path),
+                "parity_report": None
+                if self.settings.parity_report_path is None
+                else str(self.settings.parity_report_path),
             },
             "data_windows": {
                 f"{pair}_{timeframe}": _frame_window(frame)
@@ -773,6 +936,7 @@ class CryptoAsofReplayEngine:
             },
             "outcome_summary": dict(outcome_summary),
             "performance": dict(performance),
+            "parity": None if parity_summary is None else dict(parity_summary),
             "order_submission_allowed": False,
             "live_execution_allowed": False,
             "safety_note": "Phase 13 is historical replay validation only. It does not create order intents or send orders.",
@@ -781,6 +945,305 @@ class CryptoAsofReplayEngine:
     @staticmethod
     def _cycle_id(step: pd.Timestamp, index: int) -> str:
         return f"phase13-{step.strftime('%Y%m%dT%H%M%S')}-{index:06d}"
+
+
+def _candidate_records_from_journal(path: Path | str, *, trigger_timeframe: str) -> list[dict[str, object]]:
+    rows = _read_jsonl(path)
+    deliveries_by_journal: dict[str, dict[str, object]] = {}
+    deliveries_by_fingerprint: dict[str, dict[str, object]] = {}
+    for row in rows:
+        if row.get("type") != "forward_signal_delivery":
+            continue
+        journal_id = str(row.get("journal_id") or "")
+        fingerprint = str(row.get("fingerprint") or "")
+        if journal_id:
+            deliveries_by_journal[journal_id] = row
+        if fingerprint:
+            deliveries_by_fingerprint[fingerprint] = row
+
+    records: list[dict[str, object]] = []
+    for row in rows:
+        if row.get("type") != "forward_signal_candidate":
+            continue
+        signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
+        symbol = normalize_symbol(str(signal.get("symbol") or row.get("symbol") or ""))
+        side = str(signal.get("side") or row.get("side") or "").upper()
+        generated_at = _iso(signal.get("generated_at") or row.get("observed_at"))
+        observed_at = _iso(row.get("observed_at"))
+        scan_time = _iso(_floor_to_timeframe(observed_at, trigger_timeframe)) if observed_at is not None else None
+        fingerprint = str(signal.get("fingerprint") or row.get("fingerprint") or "")
+        delivery = deliveries_by_journal.get(str(row.get("journal_id") or "")) or deliveries_by_fingerprint.get(fingerprint) or {}
+        records.append(
+            {
+                "key": f"{generated_at}|{symbol}|{side}",
+                "observed_at": observed_at,
+                "scan_time": scan_time,
+                "generated_at": generated_at,
+                "cycle_id": row.get("cycle_id"),
+                "journal_id": row.get("journal_id"),
+                "symbol": symbol,
+                "side": side,
+                "score": signal.get("score") or row.get("score_total"),
+                "entry": signal.get("entry"),
+                "stop_loss": signal.get("stop_loss"),
+                "take_profit": signal.get("take_profit"),
+                "planned_rr": signal.get("planned_rr"),
+                "fingerprint": fingerprint,
+                "entry_mode": signal.get("entry_mode"),
+                "entry_source": signal.get("entry_source"),
+                "regime_label": signal.get("regime_label"),
+                "regime_direction": signal.get("regime_direction"),
+                "trigger_event": signal.get("trigger_event"),
+                "delivery_status": delivery.get("status"),
+                "delivered": delivery.get("delivered"),
+                "source": row.get("source"),
+            }
+        )
+    return records
+
+
+def _decisions_by_step_symbol(path: Path | str) -> dict[tuple[str, str], dict[str, object]]:
+    decisions: dict[tuple[str, str], dict[str, object]] = {}
+    for row in _read_jsonl(path):
+        if row.get("type") != "phase13_replay_decision":
+            continue
+        as_of = _iso(row.get("as_of"))
+        symbol = normalize_symbol(str(row.get("symbol") or ""))
+        if as_of and symbol:
+            decisions[(as_of, symbol)] = row
+    return decisions
+
+
+def _decision_summary(decision: Mapping[str, object] | None) -> dict[str, object] | None:
+    if decision is None:
+        return None
+    details = decision.get("details") if isinstance(decision.get("details"), dict) else {}
+    key_details = {
+        key: details.get(key)
+        for key in (
+            "regime_label",
+            "regime_direction",
+            "zone",
+            "htf",
+            "liquidity",
+            "pd",
+            "trigger",
+            "session",
+            "threshold",
+            "reason",
+        )
+        if key in details
+    }
+    return {
+        "as_of": decision.get("as_of"),
+        "symbol": decision.get("symbol"),
+        "state": decision.get("state"),
+        "stage": decision.get("stage"),
+        "reason": decision.get("reason"),
+        "score": decision.get("score"),
+        "side": decision.get("side"),
+        "fingerprint": decision.get("fingerprint"),
+        "generated_at": decision.get("generated_at"),
+        "entry": decision.get("entry"),
+        "entry_mode": decision.get("entry_mode"),
+        "entry_source": decision.get("entry_source"),
+        "regime_label": decision.get("regime_label") or key_details.get("regime_label"),
+        "trigger_event": decision.get("trigger_event"),
+        "key_details": key_details,
+        "visible_frames": decision.get("visible_frames") if isinstance(decision.get("visible_frames"), dict) else {},
+        "market_data_accesses": decision.get("market_data_accesses")
+        if isinstance(decision.get("market_data_accesses"), list)
+        else [],
+    }
+
+
+def _nearby_market_diagnostics(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    candidate: Mapping[str, object],
+    timeframes: Sequence[str],
+    tolerance_minutes: int = 20,
+) -> list[dict[str, object]]:
+    observed_at = candidate.get("observed_at")
+    symbol = normalize_symbol(str(candidate.get("symbol") or ""))
+    if observed_at is None or not symbol:
+        return []
+    observed = _timestamp(observed_at)
+    tolerance = pd.Timedelta(max(1, int(tolerance_minutes)) * 60, unit="s")
+    matches: list[dict[str, object]] = []
+    for timeframe in timeframes:
+        tf = timeframe.upper()
+        nearest: tuple[pd.Timedelta, Mapping[str, object]] | None = None
+        for row in rows:
+            if row.get("type") != "market_data_fetch":
+                continue
+            if normalize_symbol(str(row.get("pair") or "")) != symbol:
+                continue
+            if str(row.get("timeframe") or "").upper() != tf:
+                continue
+            row_observed_at = row.get("observed_at")
+            if row_observed_at is None:
+                continue
+            delta = abs(_timestamp(row_observed_at) - observed)
+            if delta > tolerance:
+                continue
+            if nearest is None or delta < nearest[0]:
+                nearest = (delta, row)
+        if nearest is None:
+            continue
+        _, row = nearest
+        matches.append(
+            {
+                "timeframe": tf,
+                "observed_at": row.get("observed_at"),
+                "seconds_from_candidate": round(float(nearest[0].total_seconds()), 3),
+                "served_from": row.get("served_from"),
+                "ok": row.get("ok"),
+                "stale": row.get("stale"),
+                "last_candle_time": row.get("last_candle_time"),
+                "candle_age_seconds": row.get("candle_age_seconds"),
+                "rows": row.get("rows"),
+                "cache_enabled": row.get("cache_enabled"),
+                "cache_mode": row.get("cache_mode"),
+                "latency_seconds": row.get("latency_seconds"),
+                "error": row.get("error"),
+            }
+        )
+    return matches
+
+
+def _classification(
+    *,
+    exact_replay: Mapping[str, object] | None,
+    signal_time_decision: Mapping[str, object] | None,
+    scan_time_decision: Mapping[str, object] | None,
+) -> str:
+    if exact_replay is not None:
+        return "exact_match"
+    if scan_time_decision is not None:
+        if scan_time_decision.get("state") == STATE_ACCEPTED:
+            return "scan_time_accepted_different_signal"
+        return "replay_rejected_at_scan_time"
+    if signal_time_decision is not None:
+        if signal_time_decision.get("state") == STATE_ACCEPTED:
+            return "signal_time_accepted_different_signal"
+        return "replay_rejected_at_signal_time"
+    return "missing_replay_decision"
+
+
+def build_phase13_parity_report(
+    *,
+    live_journal_path: Path | str,
+    replay_decisions_path: Path | str,
+    replay_journal_path: Path | str,
+    output_path: Path | str,
+    trigger_timeframe: str = "M5",
+    market_diagnostics_path: Path | str | None = None,
+) -> dict[str, object]:
+    """Compare live Phase 4 candidates with Phase 13 replay decisions."""
+
+    live_candidates = _candidate_records_from_journal(live_journal_path, trigger_timeframe=trigger_timeframe)
+    replay_candidates = _candidate_records_from_journal(replay_journal_path, trigger_timeframe=trigger_timeframe)
+    decisions = _decisions_by_step_symbol(replay_decisions_path)
+    diagnostics = _read_jsonl(market_diagnostics_path) if market_diagnostics_path is not None else []
+    timeframes = ("H1", "M15", trigger_timeframe.upper())
+
+    replay_by_key = {str(row["key"]): row for row in replay_candidates}
+    live_keys = {str(row["key"]) for row in live_candidates}
+    replay_keys = {str(row["key"]) for row in replay_candidates}
+
+    comparisons: list[dict[str, object]] = []
+    classification_counts: Counter[str] = Counter()
+    scan_stage_counts: Counter[str] = Counter()
+    scan_reason_counts: Counter[str] = Counter()
+    generated_stage_counts: Counter[str] = Counter()
+    generated_reason_counts: Counter[str] = Counter()
+    attached_diagnostics: list[dict[str, object]] = []
+
+    for live in live_candidates:
+        symbol = str(live.get("symbol") or "")
+        exact = replay_by_key.get(str(live.get("key")))
+        generated_at = live.get("generated_at")
+        scan_time = live.get("scan_time")
+        signal_time_decision = decisions.get((str(generated_at), symbol)) if generated_at is not None else None
+        scan_time_decision = decisions.get((str(scan_time), symbol)) if scan_time is not None else None
+        classification = _classification(
+            exact_replay=exact,
+            signal_time_decision=signal_time_decision,
+            scan_time_decision=scan_time_decision,
+        )
+        classification_counts[classification] += 1
+        if scan_time_decision is not None:
+            scan_stage_counts[str(scan_time_decision.get("stage") or "none")] += 1
+            scan_reason_counts[str(scan_time_decision.get("reason") or "none")] += 1
+        if signal_time_decision is not None:
+            generated_stage_counts[str(signal_time_decision.get("stage") or "none")] += 1
+            generated_reason_counts[str(signal_time_decision.get("reason") or "none")] += 1
+
+        live_diagnostics = _nearby_market_diagnostics(
+            diagnostics,
+            candidate=live,
+            timeframes=timeframes,
+        )
+        attached_diagnostics.extend(live_diagnostics)
+        comparisons.append(
+            {
+                "classification": classification,
+                "live": live,
+                "exact_replay_signal": exact,
+                "signal_time_replay_decision": _decision_summary(signal_time_decision),
+                "scan_time_replay_decision": _decision_summary(scan_time_decision),
+                "nearby_live_market_data": live_diagnostics,
+            }
+        )
+
+    replay_only = [row for row in replay_candidates if str(row.get("key")) not in live_keys]
+    live_only = [row for row in live_candidates if str(row.get("key")) not in replay_keys]
+    exact_matches = len(live_keys & replay_keys)
+    diagnostic_served_from_counts = Counter(str(row.get("served_from") or "unknown") for row in attached_diagnostics)
+    diagnostic_stale_counts = Counter(
+        str(row.get("timeframe") or "unknown") for row in attached_diagnostics if row.get("stale") is True
+    )
+
+    report = {
+        "type": "crypto_phase13_parity_report",
+        "version": 1,
+        "generated_at": utc_now(),
+        "status": "matched" if not live_only and not replay_only else "mismatch",
+        "paths": {
+            "live_journal": str(live_journal_path),
+            "replay_decisions": str(replay_decisions_path),
+            "replay_journal": str(replay_journal_path),
+            "market_diagnostics": None if market_diagnostics_path is None else str(market_diagnostics_path),
+            "report": str(output_path),
+        },
+        "trigger_timeframe": trigger_timeframe.upper(),
+        "live_candidates": len(live_candidates),
+        "replay_candidates": len(replay_candidates),
+        "exact_matches": exact_matches,
+        "live_only": len(live_only),
+        "replay_only": len(replay_only),
+        "classification_counts": dict(classification_counts),
+        "scan_time_rejection_stage_counts": dict(scan_stage_counts),
+        "scan_time_rejection_reason_counts": dict(scan_reason_counts),
+        "signal_time_rejection_stage_counts": dict(generated_stage_counts),
+        "signal_time_rejection_reason_counts": dict(generated_reason_counts),
+        "market_diagnostics_summary": {
+            "attached_rows": len(attached_diagnostics),
+            "served_from_counts": dict(diagnostic_served_from_counts),
+            "stale_counts_by_timeframe": dict(diagnostic_stale_counts),
+        },
+        "live_comparisons": comparisons,
+        "live_only_signals": live_only,
+        "replay_only_signals": replay_only,
+        "notes": [
+            "Exact match key is generated_at + symbol + side.",
+            "Scan-time comparison floors live observed_at to the replay trigger timeframe.",
+            "Nearby market-data diagnostics are matched by symbol/timeframe and nearest observed_at within 20 minutes.",
+        ],
+    }
+    write_json(report, output_path)
+    return report
 
 
 class _MarketDataAdapter:
