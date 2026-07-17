@@ -2,7 +2,7 @@
 
 Crypto-first SMC signal bot, forked from the forex `smctradebot` codebase.
 
-Current status: Phase 11 real-time market safety. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, a safe Phase 4 forward-validation runner, Phase 5 outcome/reporting dashboards, Phase 6 virtual account reporting, Phase 7 readiness monitoring, Phase 8 dry-run order-intent validation, Phase 9 sandbox execution/reconciliation scaffolding, Phase 10 CCXT-style testnet request previews, and Phase 11 realtime ticker/order-book/time safety checks.
+Current status: Phase 12 realtime final guard. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, a safe Phase 4 forward-validation runner, Phase 5 outcome/reporting dashboards, Phase 6 virtual account reporting, Phase 7 readiness monitoring, Phase 8 dry-run order-intent validation, Phase 9 sandbox execution/reconciliation scaffolding, Phase 10 CCXT-style testnet request previews, Phase 11 realtime ticker/order-book/time safety checks, and Phase 12 websocket snapshot plus final pre-order guard reporting.
 
 ## What Works Now
 
@@ -22,6 +22,7 @@ Current status: Phase 11 real-time market safety. The repo has the existing SMC 
 - Phase 9 dry-run/sandbox-stub execution architecture with idempotency keys, kill-switch checks, lifecycle states, and reconciliation reports
 - Phase 10 CCXT-style testnet order request previews with source-safety checks and no exchange submission
 - Phase 11 realtime market safety checks for ticker freshness, spread, exchange time drift, entry/current price deviation, and stale-cache blocking
+- Phase 12 Binance websocket snapshot store, REST fallback, and final paper/testnet pre-order guard checks with no exchange submission
 
 ## Not Ready Yet
 
@@ -107,4 +108,10 @@ Run Phase 11 realtime market safety checks:
 
 ```bash
 python -m research.crypto_market_safety
+```
+
+Run Phase 12 realtime final pre-order guard checks:
+
+```bash
+python -m research.crypto_realtime_guard --collect-websocket-seconds 15
 ```
