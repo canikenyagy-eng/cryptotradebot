@@ -2,7 +2,7 @@
 
 Crypto-first SMC signal bot, forked from the forex `smctradebot` codebase.
 
-Current status: Phase 9 sandbox execution architecture. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, a safe Phase 4 forward-validation runner, Phase 5 outcome/reporting dashboards, Phase 6 virtual account reporting, Phase 7 readiness monitoring, Phase 8 dry-run order-intent validation, and Phase 9 sandbox execution/reconciliation scaffolding.
+Current status: Phase 10 testnet order preview. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, a safe Phase 4 forward-validation runner, Phase 5 outcome/reporting dashboards, Phase 6 virtual account reporting, Phase 7 readiness monitoring, Phase 8 dry-run order-intent validation, Phase 9 sandbox execution/reconciliation scaffolding, and Phase 10 CCXT-style testnet request previews.
 
 ## What Works Now
 
@@ -20,11 +20,12 @@ Current status: Phase 9 sandbox execution architecture. The repo has the existin
 - Phase 7 paper-trading monitor that refreshes outcomes, rebuilds paper reports, and blocks live execution design until readiness guardrails pass
 - Phase 8 dry-run order-intent generation with exchange constraints, sizing checks, and safety preflight blocks
 - Phase 9 dry-run/sandbox-stub execution architecture with idempotency keys, kill-switch checks, lifecycle states, and reconciliation reports
+- Phase 10 CCXT-style testnet order request previews with source-safety checks and no exchange submission
 
 ## Not Ready Yet
 
 - Live exchange API keys, balances, and order placement are still intentionally absent
-- Real testnet order routing is still a future phase
+- Real testnet order routing is still intentionally absent
 - Fees, funding, and order-book slippage calibration still need live-execution design review
 - Real exchange execution is intentionally not implemented yet
 
@@ -93,4 +94,10 @@ Run Phase 9 sandbox execution architecture checks:
 
 ```bash
 python -m research.crypto_sandbox_execution
+```
+
+Build Phase 10 testnet order request previews:
+
+```bash
+python -m research.crypto_testnet_order_preview
 ```

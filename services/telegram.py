@@ -6,12 +6,23 @@ from dataclasses import asdict
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
+from aiohttp.resolver import ThreadedResolver
 
 from core.signal_engine import TradeSignal
 from utils.dedup import SignalDeduplicator
 
 logger = logging.getLogger(__name__)
+
+
+class SystemResolverAiohttpSession(AiohttpSession):
+    """Use the OS resolver so macOS DNS settings are honored when aiodns is installed."""
+
+    async def create_session(self):  # type: ignore[no-untyped-def]
+        if "resolver" not in self._connector_init:
+            self._connector_init["resolver"] = ThreadedResolver()
+        return await super().create_session()
 
 
 def _format_signal(signal: TradeSignal) -> str:
@@ -55,7 +66,11 @@ class TelegramSignalService:
         send_retries: int = 3,
         retry_base_delay_seconds: float = 1.0,
     ) -> None:
-        self.bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        self.bot = Bot(
+            token=token,
+            session=SystemResolverAiohttpSession(),
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        )
         self.chat_id = chat_id
         self.deduplicator = SignalDeduplicator(max_cache=dedup_cache_size)
         self._lock = asyncio.Lock()
