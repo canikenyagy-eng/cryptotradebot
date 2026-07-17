@@ -2,7 +2,7 @@
 
 Crypto-first SMC signal bot, forked from the forex `smctradebot` codebase.
 
-Current status: Phase 12 realtime final guard. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, a safe Phase 4 forward-validation runner, Phase 5 outcome/reporting dashboards, Phase 6 virtual account reporting, Phase 7 readiness monitoring, Phase 8 dry-run order-intent validation, Phase 9 sandbox execution/reconciliation scaffolding, Phase 10 CCXT-style testnet request previews, Phase 11 realtime ticker/order-book/time safety checks, and Phase 12 websocket snapshot plus final pre-order guard reporting.
+Current status: Phase 13 honest as-of replay validation. The repo has the existing SMC signal engine, backtesting, telemetry, journaling, and Telegram alert stack, with crypto symbol plumbing, exchange-native OHLCV candles via CCXT, Phase 3 BTC/ETH calibration, a safe Phase 4 forward-validation runner, Phase 5 outcome/reporting dashboards, Phase 6 virtual account reporting, Phase 7 readiness monitoring, Phase 8 dry-run order-intent validation, Phase 9 sandbox execution/reconciliation scaffolding, Phase 10 CCXT-style testnet request previews, Phase 11 realtime ticker/order-book/time safety checks, Phase 12 websocket snapshot plus final pre-order guard reporting, and Phase 13 no-future historical replay validation.
 
 ## What Works Now
 
@@ -23,6 +23,7 @@ Current status: Phase 12 realtime final guard. The repo has the existing SMC sig
 - Phase 10 CCXT-style testnet order request previews with source-safety checks and no exchange submission
 - Phase 11 realtime market safety checks for ticker freshness, spread, exchange time drift, entry/current price deviation, and stale-cache blocking
 - Phase 12 Binance websocket snapshot store, REST fallback, and final paper/testnet pre-order guard checks with no exchange submission
+- Phase 13 honest as-of replay that runs the real signal engine step by step while blocking future candles from every scanner fetch
 
 ## Not Ready Yet
 
@@ -114,4 +115,10 @@ Run Phase 12 realtime final pre-order guard checks:
 
 ```bash
 python -m research.crypto_realtime_guard --collect-websocket-seconds 15
+```
+
+Run Phase 13 honest as-of replay validation:
+
+```bash
+python -m research.crypto_asof_replay --max-steps 96
 ```
