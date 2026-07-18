@@ -18,15 +18,22 @@ class CryptoForwardValidationTests(unittest.TestCase):
         defaults = phase4_default_env()
         self.assertEqual(defaults["MARKET_TYPE"], "crypto_spot")
         self.assertEqual(defaults["DATA_SOURCE"], "ccxt")
-        self.assertEqual(defaults["PAIRS"], "BTCUSDT,ETHUSDT")
+        self.assertEqual(defaults["PAIRS"], "BTCUSDT,ETHUSDT,LTCUSDT")
         self.assertEqual(defaults["ENABLE_FORWARD_JOURNAL"], "1")
         self.assertEqual(defaults["ENABLE_LIVE_TELEMETRY"], "1")
         self.assertEqual(defaults["ENABLE_LIVE_HEARTBEAT"], "1")
+
+        specs = json.loads(defaults["SYMBOL_SPECS_JSON"])
+        self.assertEqual(specs["LTCUSDT"]["exchange_symbol"], "LTC/USDT")
+        self.assertEqual(specs["LTCUSDT"]["tick_size"], 0.01)
+        self.assertEqual(specs["LTCUSDT"]["min_order_size"], 0.001)
 
         profiles = json.loads(defaults["PAIR_PROFILES_JSON"])
         self.assertEqual(profiles["BTCUSDT"]["min_score"], 78)
         self.assertEqual(profiles["ETHUSDT"]["min_score"], 90)
         self.assertFalse(profiles["ETHUSDT"]["allow_market_fallback"])
+        self.assertEqual(profiles["LTCUSDT"]["min_score"], 90)
+        self.assertFalse(profiles["LTCUSDT"]["allow_market_fallback"])
         self.assertEqual(profiles["BTCUSDT"]["regime_blocklist"], "EXPANSION,CONTRACTION,TREND")
 
     def test_apply_phase4_defaults_preserves_existing_values_unless_forced(self) -> None:
@@ -39,7 +46,7 @@ class CryptoForwardValidationTests(unittest.TestCase):
 
             forced = apply_phase4_defaults(force=True)
             self.assertEqual(os.environ["DATA_SOURCE"], "ccxt")
-            self.assertEqual(os.environ["PAIRS"], "BTCUSDT,ETHUSDT")
+            self.assertEqual(os.environ["PAIRS"], "BTCUSDT,ETHUSDT,LTCUSDT")
             self.assertIn("DATA_SOURCE", forced)
 
     def test_settings_can_load_without_telegram_for_dry_validation(self) -> None:
@@ -52,7 +59,7 @@ class CryptoForwardValidationTests(unittest.TestCase):
             os.environ.pop("TELEGRAM_CHAT_ID", None)
             settings = Settings.from_env(require_telegram=False)
             self.assertEqual(settings.data_source, "ccxt")
-            self.assertEqual(settings.pairs, ["BTCUSDT", "ETHUSDT"])
+            self.assertEqual(settings.pairs, ["BTCUSDT", "ETHUSDT", "LTCUSDT"])
             self.assertTrue(settings.enable_forward_journal)
 
     def test_ccxt_feed_health_uses_trigger_timeframe_freshness(self) -> None:
@@ -75,6 +82,16 @@ class CryptoForwardValidationTests(unittest.TestCase):
                     "observed_at": observed_at,
                     "data_source": "ccxt",
                     "pair": "ETHUSDT",
+                    "timeframe": "M5",
+                    "ok": True,
+                    "slow": False,
+                    "stale": False,
+                },
+                {
+                    "type": "market_data_fetch",
+                    "observed_at": observed_at,
+                    "data_source": "ccxt",
+                    "pair": "LTCUSDT",
                     "timeframe": "M5",
                     "ok": True,
                     "slow": False,

@@ -44,7 +44,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run Phase 13 honest as-of replay validation.")
-    parser.add_argument("--pairs", default=_env_str("PHASE13_PAIRS", "BTCUSDT,ETHUSDT"))
+    parser.add_argument("--pairs", default=_env_str("PHASE13_PAIRS", "BTCUSDT,ETHUSDT,LTCUSDT"))
     parser.add_argument("--start", default=_env_str("PHASE13_START", ""))
     parser.add_argument("--end", default=_env_str("PHASE13_END", ""))
     parser.add_argument("--max-steps", type=int, default=_env_int("PHASE13_MAX_STEPS", 96))

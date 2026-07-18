@@ -25,6 +25,13 @@ PHASE4_SYMBOL_SPECS: dict[str, dict[str, object]] = {
         "maker_fee_rate": 0.001,
         "taker_fee_rate": 0.001,
     },
+    "LTCUSDT": {
+        "exchange_symbol": "LTC/USDT",
+        "tick_size": 0.01,
+        "min_order_size": 0.001,
+        "maker_fee_rate": 0.001,
+        "taker_fee_rate": 0.001,
+    },
 }
 
 PHASE4_PAIR_PROFILES: dict[str, dict[str, object]] = {
@@ -40,6 +47,13 @@ PHASE4_PAIR_PROFILES: dict[str, dict[str, object]] = {
         "regime_blocklist": "EXPANSION,CONTRACTION,TREND",
         "allow_market_fallback": False,
         "description": "Phase 13 tightened ETH profile: score 90 and no MARKET fallback.",
+    },
+    "LTCUSDT": {
+        "min_score": 90,
+        "evaluation_step": 20,
+        "regime_blocklist": "EXPANSION,CONTRACTION,TREND",
+        "allow_market_fallback": False,
+        "description": "Phase 13 observation profile: score 90 and no MARKET fallback.",
     },
 }
 
@@ -58,7 +72,7 @@ def phase4_default_env() -> dict[str, str]:
         "CCXT_ENABLE_RATE_LIMIT": "1",
         "CCXT_OHLCV_REQUEST_LIMIT": "1000",
         "CCXT_HEALTH_CHECK_SYMBOL": "BTCUSDT",
-        "PAIRS": "BTCUSDT,ETHUSDT",
+        "PAIRS": "BTCUSDT,ETHUSDT,LTCUSDT",
         "SYMBOL_SPECS_JSON": _compact_json(PHASE4_SYMBOL_SPECS),
         "ENABLE_LIVE_MODE": "0",
         "ENABLE_PAIR_PROFILES": "1",

@@ -47,7 +47,7 @@ python -m research.crypto_asof_replay \
 ## What It Uses
 
 - real Phase 4 crypto defaults unless existing env overrides them
-- BTCUSDT and ETHUSDT by default
+- BTCUSDT, ETHUSDT, and LTCUSDT by default
 - H1, M15, and M5 signal frames
 - the real `SignalEngine`
 - the real Phase 3 pair profiles and score gates
@@ -125,5 +125,5 @@ Before using replay results for calibration:
 - `future_leaks=0`
 - enough replay steps were sampled
 - closed outcomes are available
-- BTCUSDT and ETHUSDT both have coverage
+- BTCUSDT, ETHUSDT, and LTCUSDT all have coverage before LTC is considered useful
 - metrics are compared against Phase 4 live forward results
