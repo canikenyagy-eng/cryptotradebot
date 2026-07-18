@@ -25,7 +25,8 @@ class CryptoForwardValidationTests(unittest.TestCase):
 
         profiles = json.loads(defaults["PAIR_PROFILES_JSON"])
         self.assertEqual(profiles["BTCUSDT"]["min_score"], 78)
-        self.assertEqual(profiles["ETHUSDT"]["min_score"], 80)
+        self.assertEqual(profiles["ETHUSDT"]["min_score"], 90)
+        self.assertFalse(profiles["ETHUSDT"]["allow_market_fallback"])
         self.assertEqual(profiles["BTCUSDT"]["regime_blocklist"], "EXPANSION,CONTRACTION,TREND")
 
     def test_apply_phase4_defaults_preserves_existing_values_unless_forced(self) -> None:

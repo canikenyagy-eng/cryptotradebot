@@ -35,10 +35,11 @@ PHASE4_PAIR_PROFILES: dict[str, dict[str, object]] = {
         "description": "Phase 3 strict range-only forward-validation profile.",
     },
     "ETHUSDT": {
-        "min_score": 80,
+        "min_score": 90,
         "evaluation_step": 20,
         "regime_blocklist": "EXPANSION,CONTRACTION,TREND",
-        "description": "Phase 3 strict range-only forward-validation profile.",
+        "allow_market_fallback": False,
+        "description": "Phase 13 tightened ETH profile: score 90 and no MARKET fallback.",
     },
 }
 
