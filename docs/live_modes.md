@@ -2,7 +2,7 @@
 
 Live modes are optional overlays for the Telegram signal engine. They do not change backtest logic and remain disabled unless `ENABLE_LIVE_MODE=1`.
 
-For crypto Phase 4, prefer `python -m research.crypto_forward_validation` and `docs/phase4_crypto_forward_validation.env.example`. That workflow uses explicit BTCUSDT/ETHUSDT pair profiles instead of these preset live-mode overlays.
+For crypto Phase 4, prefer `python -m research.crypto_forward_validation` and `docs/phase4_crypto_forward_validation.env.example`. That workflow uses explicit BTCUSDT/ETHUSDT/LTCUSDT pair profiles instead of these preset live-mode overlays.
 
 ## Disabled / Legacy
 
@@ -53,7 +53,7 @@ LIVE_MODE=aggressive
 Notes:
 
 - The aggressive preset is not the Phase 4 recommended profile.
-- Keep Phase 4 on BTCUSDT/ETHUSDT until forward evidence supports adding SOLUSDT.
+- Keep Phase 4 on BTCUSDT/ETHUSDT/LTCUSDT until forward evidence supports adding SOLUSDT.
 
 ## Conservative
 

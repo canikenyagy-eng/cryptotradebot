@@ -81,7 +81,7 @@ def main() -> None:
     args = build_parser().parse_args()
     market_type = os.getenv("MARKET_TYPE", "crypto_spot").strip().lower()
     symbol_specs = parse_json_dict(os.getenv("SYMBOL_SPECS_JSON"))
-    pairs = parse_csv(args.pairs or os.getenv("PAIRS", "BTCUSDT,ETHUSDT"))
+    pairs = parse_csv(args.pairs or os.getenv("PAIRS", "BTCUSDT,ETHUSDT,LTCUSDT"))
     ccxt_config = {
         "exchange_id": args.exchange or os.getenv("CCXT_EXCHANGE_ID", "binance"),
         "market_type": market_type,

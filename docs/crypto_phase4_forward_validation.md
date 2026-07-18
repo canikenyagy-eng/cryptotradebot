@@ -1,12 +1,12 @@
 # Crypto Phase 4 Forward Validation
 
-Phase 4 runs the calibrated BTCUSDT/ETHUSDT profile against live CCXT candles and records what the signal engine sees. It is signal-only: Telegram alerts and local journals are allowed, exchange execution is not implemented.
+Phase 4 runs the calibrated BTCUSDT/ETHUSDT/LTCUSDT profile against live CCXT candles and records what the signal engine sees. It is signal-only: Telegram alerts and local journals are allowed, exchange execution is not implemented.
 
 ## Scope
 
 - Poll exchange-native OHLCV through `DATA_SOURCE=ccxt`
-- Start with `BTCUSDT` and `ETHUSDT`
-- Use the Phase 3 strict profile: BTC score `78`, ETH score `80`, range-only
+- Start with `BTCUSDT`, `ETHUSDT`, and `LTCUSDT`
+- Use strict pair profiles: BTC score `78`; ETH score `90` with no MARKET fallback; LTC score `90` with no MARKET fallback; range-only
 - Write forward candidate and Telegram delivery events to JSONL
 - Write telemetry, heartbeat, and market-data diagnostics
 - Keep exchange API keys out of the workflow
@@ -87,5 +87,5 @@ Collect forward data before considering execution work:
 - At least 2 weeks of stable polling
 - No repeated CCXT health or freshness failures
 - Forward journal and heartbeat files update every scan cycle
-- Enough closed theoretical outcomes to compare BTC vs ETH and range vs blocked regimes
+- Enough closed theoretical outcomes to compare BTC vs ETH vs LTC and range vs blocked regimes
 - No live exchange orders or exchange API keys introduced
